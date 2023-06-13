@@ -1,0 +1,8 @@
+CPMAddPackage(
+  NAME wil
+  GITHUB_REPOSITORY "microsoft/wil"
+  GIT_TAG 57a57cd7ebaa8092f2056ebfdac6a367cf0bc928
+  OPTIONS
+    "FAST_BUILD OFF"
+    "WIL_BUILD_PACKAGING OFF"
+    "WIL_BUILD_TESTS OFF")

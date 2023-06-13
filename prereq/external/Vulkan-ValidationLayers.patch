@@ -1,0 +1,27 @@
+diff --git a/layers/CMakeLists.txt b/layers/CMakeLists.txt
+index 06b53ff9b..1c739ab1d 100644
+--- a/layers/CMakeLists.txt
++++ b/layers/CMakeLists.txt
+@@ -132,13 +132,19 @@ endif()
+ # Represents all SPIRV libraries we need
+ add_library(VVL-SPIRV-LIBS INTERFACE)
+ 
+-find_package(SPIRV-Headers REQUIRED CONFIG QUIET)
++if (NOT TARGET SPIRV-Headers)
++	find_package(SPIRV-Headers REQUIRED CONFIG QUIET)
++endif()
+ target_link_libraries(VVL-SPIRV-LIBS INTERFACE SPIRV-Headers::SPIRV-Headers)
+ 
+-find_package(SPIRV-Tools-opt REQUIRED CONFIG QUIET)
++if (NOT TARGET SPIRV-Tools-opt)
++	find_package(SPIRV-Tools-opt REQUIRED CONFIG QUIET)
++endif()
+ target_link_libraries(VVL-SPIRV-LIBS INTERFACE SPIRV-Tools-opt)
+ 
+-find_package(SPIRV-Tools REQUIRED CONFIG QUIET)
++if (NOT TARGET SPIRV-Tools AND NOT TARGET SPIRV-Tools-static AND NOT TARGET SPIRV-Tools-shared)
++	find_package(SPIRV-Tools REQUIRED CONFIG QUIET)
++endif()
+ 
+ # See https://github.com/KhronosGroup/SPIRV-Tools/issues/3909 for background on this.
+ # The targets available from SPIRV-Tools change depending on how SPIRV_TOOLS_BUILD_STATIC is set.

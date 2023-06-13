@@ -1,0 +1,30 @@
+diff --git a/tools/llvm-as/CMakeLists.txt b/tools/llvm-as/CMakeLists.txt
+index d9fcbb071..c1a1e5b20 100644
+--- a/tools/llvm-as/CMakeLists.txt
++++ b/tools/llvm-as/CMakeLists.txt
+@@ -11,7 +11,7 @@ add_llvm_tool(llvm-as
+   )
+ 
+ # HLSL Change Starts
+-if (NOT HLSL_OPTIONAL_PROJS_IN_DEFAULT)
+-  set_target_properties(llvm-as PROPERTIES EXCLUDE_FROM_ALL ON EXCLUDE_FROM_DEFAULT_BUILD ON)
+-endif ()
++#if (NOT HLSL_OPTIONAL_PROJS_IN_DEFAULT)
++#  set_target_properties(llvm-as PROPERTIES EXCLUDE_FROM_ALL ON EXCLUDE_FROM_DEFAULT_BUILD ON)
++#endif ()
+ # HLSL Change Ends
+diff --git a/tools/llvm-dis/CMakeLists.txt b/tools/llvm-dis/CMakeLists.txt
+index accd68cd0..baf6e1422 100644
+--- a/tools/llvm-dis/CMakeLists.txt
++++ b/tools/llvm-dis/CMakeLists.txt
+@@ -11,7 +11,7 @@ add_llvm_tool(llvm-dis
+   )
+ 
+ # HLSL Change Starts
+-if (NOT HLSL_OPTIONAL_PROJS_IN_DEFAULT)
+-  set_target_properties(llvm-dis PROPERTIES EXCLUDE_FROM_ALL ON EXCLUDE_FROM_DEFAULT_BUILD ON)
+-endif ()
++#if (NOT HLSL_OPTIONAL_PROJS_IN_DEFAULT)
++#  set_target_properties(llvm-dis PROPERTIES EXCLUDE_FROM_ALL ON EXCLUDE_FROM_DEFAULT_BUILD ON)
++#endif ()
+ # HLSL Change Ends

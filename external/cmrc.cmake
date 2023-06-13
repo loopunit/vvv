@@ -1,0 +1,4 @@
+CPMAddPackage(
+  NAME cmrc
+  GITHUB_REPOSITORY vector-of-bool/cmrc
+  GIT_TAG 9a3396444e0478bd6f261075e74d1ecf70964029)
