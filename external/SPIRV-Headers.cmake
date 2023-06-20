@@ -1,15 +1,29 @@
 CPMAddPackage(
   NAME SPIRV-Headers
   GITHUB_REPOSITORY "KhronosGroup/SPIRV-Headers"
-  GIT_TAG 8e2ad27488ed2f87c068c01a8f5e8979f7086405
-  DOWNLOAD_ONLY YES)
+  GIT_TAG 268a061764ee69f09a477a695bf6a11ffe311b8d
+  OPTIONS
+    "SPIRV_SKIP_TESTS ON")
+  #DOWNLOAD_ONLY YES)
 
-add_library(SPIRV-Headers INTERFACE)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
-target_link_libraries(SPIRV-Headers PUBLIC Vulkan::Headers)
+install(DIRECTORY ${SPIRV-Headers_SOURCE_DIR}/include/spirv DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-target_include_directories(SPIRV-Headers PUBLIC
-    "$<BUILD_INTERFACE:${SPIRV-Headers_SOURCE_DIR}/include>"
-    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+set(cmake_install_dir "${CMAKE_INSTALL_DATADIR}/cmake/SPIRV-Headers")
+set(version_config "${CMAKE_CURRENT_BINARY_DIR}/generated/SPIRV-HeadersConfigVersion.cmake")
 
-add_library(SPIRV-Headers::SPIRV-Headers ALIAS SPIRV-Headers)
+write_basic_package_version_file("${version_config}" COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+install(FILES "${version_config}" DESTINATION "${cmake_install_dir}")
+
+install(TARGETS SPIRV-Headers EXPORT "SPIRV-HeadersConfig" INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT "SPIRV-HeadersConfig" NAMESPACE "SPIRV-Headers::" DESTINATION "${cmake_install_dir}")
+
+if (IS_ABSOLUTE ${CMAKE_INSTALL_INCLUDEDIR})
+    set(SPIRV_HEADERS_PKGCONFIG_INCLUDE_DIR ${CMAKE_INSTALL_INCLUDEDIR})
+else()
+    set(SPIRV_HEADERS_PKGCONFIG_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR})
+endif()
+configure_file(${SPIRV-Headers_SOURCE_DIR}/cmake/SPIRV-Headers.pc.in ${CMAKE_CURRENT_BINARY_DIR}/SPIRV-Headers.pc @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SPIRV-Headers.pc" DESTINATION ${CMAKE_INSTALL_DATADIR}/pkgconfig)

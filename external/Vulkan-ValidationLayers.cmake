@@ -1,10 +1,59 @@
+set(Vulkan-ValidationLayers_PATCHFILE ${CMAKE_CURRENT_LIST_DIR}/Vulkan-ValidationLayers.patch)
+set(Vulkan-ValidationLayers_PATCH_COMMAND git apply ${Vulkan-ValidationLayers_PATCHFILE})
+
+if (EXISTS ${Vulkan-ValidationLayers_PATCHFILE})
+	set(Vulkan-ValidationLayers_EXTRA_ARGS PATCH_COMMAND ${Vulkan-ValidationLayers_PATCH_COMMAND})
+endif()
+
 CPMAddPackage(
   NAME Vulkan-ValidationLayers
   GITHUB_REPOSITORY "KhronosGroup/Vulkan-ValidationLayers"
-  GIT_TAG ff7d97ac15dc038cb6caba9b9d7a55a3b934688b
+  GIT_TAG 1541e00a63cd125f15d231d5a8059ebe66503b25
+  ${Vulkan-ValidationLayers_EXTRA_ARGS}
   DOWNLOAD_ONLY YES)
 
+#message(STATUS "Generate the patch thusly:")
+#message(STATUS "cd ${Vulkan-ValidationLayers_SOURCE_DIR}")
+#message(STATUS "git diff > ${Vulkan-ValidationLayers_PATCHFILE}")
+
 add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/scripts)
+
+set(VVL_CPP_STANDARD 17 CACHE STRING "Set the C++ standard to build against.")
+set(CMAKE_CXX_STANDARD ${VVL_CPP_STANDARD})
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_VISIBILITY_PRESET "hidden")
+set(CMAKE_VISIBILITY_INLINES_HIDDEN "YES")
+
+include(GNUInstallDirs)
+
+set_property(GLOBAL PROPERTY USE_FOLDERS ON) # Remove when min is 3.26, see CMP0143
+
+if (ANNOTATED_SPEC_LINK)
+    message("ANNOTATED_SPEC_LINK is ${ANNOTATED_SPEC_LINK}")
+    add_compile_definitions(ANNOTATED_SPEC_LINK=${ANNOTATED_SPEC_LINK})
+endif()
+
+option(BUILD_WERROR "Treat compiler warnings as errors")
+if (BUILD_WERROR)
+    add_compile_options("$<IF:$<CXX_COMPILER_ID:MSVC>,/WX,-Werror>")
+endif()
+
+option(VVL_ENABLE_ASAN "Use address sanitization")
+if (VVL_ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+endif()
+
+option(VVL_CLANG_TIDY "Use clang-tidy")
+if (VVL_CLANG_TIDY)
+    find_program(CLANG_TIDY NAMES clang-tidy)
+    if(NOT CLANG_TIDY)
+        message(FATAL_ERROR "clang-tidy not found!")
+    endif()
+    set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY}")
+endif()
 
 if(${CMAKE_CXX_COMPILER_ID} MATCHES "(GNU|Clang)")
     add_compile_options(
@@ -55,15 +104,15 @@ elseif(MSVC)
     add_compile_options($<$<BOOL:${MSVC_IDE}>:/MP>) # Speed up Visual Studio builds
 endif()
 
-set(BUILD_LAYERS ON)
-add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/layers)
+option(BUILD_LAYERS "Build validation layers" ON)
+option(BUILD_LAYER_SUPPORT_FILES "Install VkLayer_utils")
 
-add_library(Vulkan-ValidationLayers INTERFACE)
+if(BUILD_LAYERS OR BUILD_LAYER_SUPPORT_FILES)
+    add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/layers)
+endif()
 
-target_link_libraries(Vulkan-ValidationLayers PUBLIC Vulkan::Vulkan)
-
-target_include_directories(Vulkan-ValidationLayers PUBLIC
-    "$<BUILD_INTERFACE:${Vulkan-ValidationLayers_SOURCE_DIR}/include>"
-    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
-
-add_library(Vulkan::ValidationLayers ALIAS Vulkan-ValidationLayers)
+#option(BUILD_TESTS "Build the tests")
+#if(BUILD_TESTS)
+#    enable_testing()
+#    add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/tests)
+#endif()
