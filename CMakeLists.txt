@@ -16,43 +16,19 @@ endif()
 option(vvv_PREREQ "Prerequisite installation logic" ${IS_TOPLEVEL_PROJECT})
 option(vvv_INSTALL "Installation logic" FALSE)
 
-cmake_path(GET CMAKE_INSTALL_PREFIX STEM LAST_ONLY vvv_TARGET_ARCH)
-set(vvv_ROOT_DIR ${CMAKE_CURRENT_LIST_DIR})
-set(vvv_PREREQ_ROOT ${CMAKE_CURRENT_LIST_DIR}/.local/prereq)
-set(vvv_PREREQ_TARGET ${vvv_PREREQ_ROOT}/${vvv_TARGET_ARCH})
-set(vvv_PREREQ_INSTALL ${vvv_PREREQ_TARGET}/install)
-
-if (${vvv_PREREQ})
-	ExternalProject_Add(vvv_prereq_dependencies
-	  SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/prereq
-	  BINARY_DIR ${vvv_PREREQ_TARGET}/bin
-	  TMP_DIR ${vvv_PREREQ_TARGET}/tmp
-	  STAMP_DIR ${vvv_PREREQ_TARGET}/stamp
-	  LOG_DIR ${vvv_PREREQ_TARGET}/log
-	  DOWNLOAD_DIR ${vvv_PREREQ_TARGET}/download
-	  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${vvv_PREREQ_INSTALL} -Dvvv_ROOT_DIR:PATH=${vvv_ROOT_DIR}
-	  INSTALL_DIR ${vvv_PREREQ_INSTALL}
-	  UPDATE_COMMAND ;
-	  USES_TERMINAL_DOWNLOAD YES
-	  USES_TERMINAL_PATCH YES
-	  USES_TERMINAL_CONFIGURE YES
-	  USES_TERMINAL_BUILD YES
-	  USES_TERMINAL_INSTALL YES
-	  USES_TERMINAL_UPDATE YES
-	  USES_TERMINAL_TEST YES)
-
-	add_custom_target(build_vvv_prereq)
-	add_dependencies(build_vvv_prereq vvv_prereq_dependencies)
+if (${IS_TOPLEVEL_PROJECT} AND NOT DEFINED vvv_ROOT_DIR)
+	get_filename_component(vvv_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
 endif()
 
+include("prereq/prereq.cmake")
+
 if (NOT ${vvv_PREREQ})
-	function(vvv_find_package NAME)
-		find_package(${NAME} PATHS ${vvv_PREREQ_INSTALL})
-	endfunction()
+	add_library(vvv STATIC 
+		"src/vvv.cpp"
+		"include/vvv.h"
+		"include/vvv_window.h")
 
-	add_library(vvv STATIC "src/vvv.cpp")
-
-	vvv_find_package(VulkanHeaders)
+	find_package(volk REQUIRED)
 	find_package(boost_leaf REQUIRED)
 	find_package(fmt REQUIRED)
 	find_package(WIL REQUIRED)
@@ -78,7 +54,7 @@ if (NOT ${vvv_PREREQ})
 			WIL::WIL
 			concurrentqueue
 			libcuckoo::libcuckoo
-			Vulkan::Headers
+			volk::volk
 			#Polypropylene::Polypropylene
 			Taskflow)
 

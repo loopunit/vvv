@@ -3,6 +3,7 @@
   "configurePresets": [
     {
       "name": "windows-base",
+	    "hidden": true,
       "displayName": "Base Preset",
       "description": "Default preset for Windows systems",
       "generator": "Ninja",
@@ -22,7 +23,8 @@
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl.exe",
         "CMAKE_CXX_COMPILER": "cl.exe",
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "vvv_PREREQ_LAYER": "1"
       }
     },
     {
@@ -33,7 +35,8 @@
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl.exe",
         "CMAKE_CXX_COMPILER": "cl.exe",
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "vvv_PREREQ_LAYER": "1"
       }
     }
   ],

@@ -1,0 +1,220 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f58ca7e..05c16ee 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -4,7 +4,7 @@ cmake_policy(SET CMP0048 NEW) # project(... VERSION ...) support
+ 
+ project(volk VERSION 
+ # VOLK_GENERATE_VERSION
+-255
++250
+ # VOLK_GENERATE_VERSION
+   LANGUAGES C
+ )
+@@ -64,6 +64,7 @@ endif()
+ if(VOLK_PULL_IN_VULKAN)
+   # If CMake has the FindVulkan module and it works, use it.
+   find_package(Vulkan QUIET)
++  find_package(VulkanHeaders CONFIG)
+ 
+   # Try an explicit CMake variable first, then any Vulkan targets
+   # discovered by FindVulkan.cmake, then the $VULKAN_SDK environment
+diff --git a/volk.c b/volk.c
+index 35be83c..c2c9427 100644
+--- a/volk.c
++++ b/volk.c
+@@ -242,9 +242,6 @@ static void volkGenLoadInstance(void* context, PFN_vkVoidFunction (*load)(void*,
+ #if defined(VK_KHR_android_surface)
+ 	vkCreateAndroidSurfaceKHR = (PFN_vkCreateAndroidSurfaceKHR)load(context, "vkCreateAndroidSurfaceKHR");
+ #endif /* defined(VK_KHR_android_surface) */
+-#if defined(VK_KHR_cooperative_matrix)
+-	vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR = (PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR)load(context, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR");
+-#endif /* defined(VK_KHR_cooperative_matrix) */
+ #if defined(VK_KHR_device_group_creation)
+ 	vkEnumeratePhysicalDeviceGroupsKHR = (PFN_vkEnumeratePhysicalDeviceGroupsKHR)load(context, "vkEnumeratePhysicalDeviceGroupsKHR");
+ #endif /* defined(VK_KHR_device_group_creation) */
+@@ -299,9 +296,6 @@ static void volkGenLoadInstance(void* context, PFN_vkVoidFunction (*load)(void*,
+ 	vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)load(context, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+ 	vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR)load(context, "vkGetPhysicalDeviceSurfaceSupportKHR");
+ #endif /* defined(VK_KHR_surface) */
+-#if defined(VK_KHR_video_encode_queue)
+-	vkGetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR = (PFN_vkGetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR)load(context, "vkGetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR");
+-#endif /* defined(VK_KHR_video_encode_queue) */
+ #if defined(VK_KHR_video_queue)
+ 	vkGetPhysicalDeviceVideoCapabilitiesKHR = (PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR)load(context, "vkGetPhysicalDeviceVideoCapabilitiesKHR");
+ 	vkGetPhysicalDeviceVideoFormatPropertiesKHR = (PFN_vkGetPhysicalDeviceVideoFormatPropertiesKHR)load(context, "vkGetPhysicalDeviceVideoFormatPropertiesKHR");
+@@ -593,9 +587,6 @@ static void volkGenLoadDevice(void* context, PFN_vkVoidFunction (*load)(void*, c
+ 	vkDebugMarkerSetObjectNameEXT = (PFN_vkDebugMarkerSetObjectNameEXT)load(context, "vkDebugMarkerSetObjectNameEXT");
+ 	vkDebugMarkerSetObjectTagEXT = (PFN_vkDebugMarkerSetObjectTagEXT)load(context, "vkDebugMarkerSetObjectTagEXT");
+ #endif /* defined(VK_EXT_debug_marker) */
+-#if defined(VK_EXT_depth_bias_control)
+-	vkCmdSetDepthBias2EXT = (PFN_vkCmdSetDepthBias2EXT)load(context, "vkCmdSetDepthBias2EXT");
+-#endif /* defined(VK_EXT_depth_bias_control) */
+ #if defined(VK_EXT_descriptor_buffer)
+ 	vkCmdBindDescriptorBufferEmbeddedSamplersEXT = (PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT)load(context, "vkCmdBindDescriptorBufferEmbeddedSamplersEXT");
+ 	vkCmdBindDescriptorBuffersEXT = (PFN_vkCmdBindDescriptorBuffersEXT)load(context, "vkCmdBindDescriptorBuffersEXT");
+@@ -941,7 +932,6 @@ static void volkGenLoadDevice(void* context, PFN_vkVoidFunction (*load)(void*, c
+ #endif /* defined(VK_KHR_video_decode_queue) */
+ #if defined(VK_KHR_video_encode_queue)
+ 	vkCmdEncodeVideoKHR = (PFN_vkCmdEncodeVideoKHR)load(context, "vkCmdEncodeVideoKHR");
+-	vkGetEncodedVideoSessionParametersKHR = (PFN_vkGetEncodedVideoSessionParametersKHR)load(context, "vkGetEncodedVideoSessionParametersKHR");
+ #endif /* defined(VK_KHR_video_encode_queue) */
+ #if defined(VK_KHR_video_queue)
+ 	vkBindVideoSessionMemoryKHR = (PFN_vkBindVideoSessionMemoryKHR)load(context, "vkBindVideoSessionMemoryKHR");
+@@ -1038,9 +1028,6 @@ static void volkGenLoadDevice(void* context, PFN_vkVoidFunction (*load)(void*, c
+ 	vkGetDynamicRenderingTilePropertiesQCOM = (PFN_vkGetDynamicRenderingTilePropertiesQCOM)load(context, "vkGetDynamicRenderingTilePropertiesQCOM");
+ 	vkGetFramebufferTilePropertiesQCOM = (PFN_vkGetFramebufferTilePropertiesQCOM)load(context, "vkGetFramebufferTilePropertiesQCOM");
+ #endif /* defined(VK_QCOM_tile_properties) */
+-#if defined(VK_QNX_external_memory_screen_buffer)
+-	vkGetScreenBufferPropertiesQNX = (PFN_vkGetScreenBufferPropertiesQNX)load(context, "vkGetScreenBufferPropertiesQNX");
+-#endif /* defined(VK_QNX_external_memory_screen_buffer) */
+ #if defined(VK_VALVE_descriptor_set_host_mapping)
+ 	vkGetDescriptorSetHostMappingVALVE = (PFN_vkGetDescriptorSetHostMappingVALVE)load(context, "vkGetDescriptorSetHostMappingVALVE");
+ 	vkGetDescriptorSetLayoutHostMappingInfoVALVE = (PFN_vkGetDescriptorSetLayoutHostMappingInfoVALVE)load(context, "vkGetDescriptorSetLayoutHostMappingInfoVALVE");
+@@ -1354,9 +1341,6 @@ static void volkGenLoadDeviceTable(struct VolkDeviceTable* table, void* context,
+ 	table->vkDebugMarkerSetObjectNameEXT = (PFN_vkDebugMarkerSetObjectNameEXT)load(context, "vkDebugMarkerSetObjectNameEXT");
+ 	table->vkDebugMarkerSetObjectTagEXT = (PFN_vkDebugMarkerSetObjectTagEXT)load(context, "vkDebugMarkerSetObjectTagEXT");
+ #endif /* defined(VK_EXT_debug_marker) */
+-#if defined(VK_EXT_depth_bias_control)
+-	table->vkCmdSetDepthBias2EXT = (PFN_vkCmdSetDepthBias2EXT)load(context, "vkCmdSetDepthBias2EXT");
+-#endif /* defined(VK_EXT_depth_bias_control) */
+ #if defined(VK_EXT_descriptor_buffer)
+ 	table->vkCmdBindDescriptorBufferEmbeddedSamplersEXT = (PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT)load(context, "vkCmdBindDescriptorBufferEmbeddedSamplersEXT");
+ 	table->vkCmdBindDescriptorBuffersEXT = (PFN_vkCmdBindDescriptorBuffersEXT)load(context, "vkCmdBindDescriptorBuffersEXT");
+@@ -1702,7 +1686,6 @@ static void volkGenLoadDeviceTable(struct VolkDeviceTable* table, void* context,
+ #endif /* defined(VK_KHR_video_decode_queue) */
+ #if defined(VK_KHR_video_encode_queue)
+ 	table->vkCmdEncodeVideoKHR = (PFN_vkCmdEncodeVideoKHR)load(context, "vkCmdEncodeVideoKHR");
+-	table->vkGetEncodedVideoSessionParametersKHR = (PFN_vkGetEncodedVideoSessionParametersKHR)load(context, "vkGetEncodedVideoSessionParametersKHR");
+ #endif /* defined(VK_KHR_video_encode_queue) */
+ #if defined(VK_KHR_video_queue)
+ 	table->vkBindVideoSessionMemoryKHR = (PFN_vkBindVideoSessionMemoryKHR)load(context, "vkBindVideoSessionMemoryKHR");
+@@ -1799,9 +1782,6 @@ static void volkGenLoadDeviceTable(struct VolkDeviceTable* table, void* context,
+ 	table->vkGetDynamicRenderingTilePropertiesQCOM = (PFN_vkGetDynamicRenderingTilePropertiesQCOM)load(context, "vkGetDynamicRenderingTilePropertiesQCOM");
+ 	table->vkGetFramebufferTilePropertiesQCOM = (PFN_vkGetFramebufferTilePropertiesQCOM)load(context, "vkGetFramebufferTilePropertiesQCOM");
+ #endif /* defined(VK_QCOM_tile_properties) */
+-#if defined(VK_QNX_external_memory_screen_buffer)
+-	table->vkGetScreenBufferPropertiesQNX = (PFN_vkGetScreenBufferPropertiesQNX)load(context, "vkGetScreenBufferPropertiesQNX");
+-#endif /* defined(VK_QNX_external_memory_screen_buffer) */
+ #if defined(VK_VALVE_descriptor_set_host_mapping)
+ 	table->vkGetDescriptorSetHostMappingVALVE = (PFN_vkGetDescriptorSetHostMappingVALVE)load(context, "vkGetDescriptorSetHostMappingVALVE");
+ 	table->vkGetDescriptorSetLayoutHostMappingInfoVALVE = (PFN_vkGetDescriptorSetLayoutHostMappingInfoVALVE)load(context, "vkGetDescriptorSetLayoutHostMappingInfoVALVE");
+@@ -2178,9 +2158,6 @@ PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT;
+ PFN_vkSetDebugUtilsObjectTagEXT vkSetDebugUtilsObjectTagEXT;
+ PFN_vkSubmitDebugUtilsMessageEXT vkSubmitDebugUtilsMessageEXT;
+ #endif /* defined(VK_EXT_debug_utils) */
+-#if defined(VK_EXT_depth_bias_control)
+-PFN_vkCmdSetDepthBias2EXT vkCmdSetDepthBias2EXT;
+-#endif /* defined(VK_EXT_depth_bias_control) */
+ #if defined(VK_EXT_descriptor_buffer)
+ PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT vkCmdBindDescriptorBufferEmbeddedSamplersEXT;
+ PFN_vkCmdBindDescriptorBuffersEXT vkCmdBindDescriptorBuffersEXT;
+@@ -2402,9 +2379,6 @@ PFN_vkGetBufferDeviceAddressKHR vkGetBufferDeviceAddressKHR;
+ PFN_vkGetBufferOpaqueCaptureAddressKHR vkGetBufferOpaqueCaptureAddressKHR;
+ PFN_vkGetDeviceMemoryOpaqueCaptureAddressKHR vkGetDeviceMemoryOpaqueCaptureAddressKHR;
+ #endif /* defined(VK_KHR_buffer_device_address) */
+-#if defined(VK_KHR_cooperative_matrix)
+-PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR;
+-#endif /* defined(VK_KHR_cooperative_matrix) */
+ #if defined(VK_KHR_copy_commands2)
+ PFN_vkCmdBlitImage2KHR vkCmdBlitImage2KHR;
+ PFN_vkCmdCopyBuffer2KHR vkCmdCopyBuffer2KHR;
+@@ -2609,8 +2583,6 @@ PFN_vkCmdDecodeVideoKHR vkCmdDecodeVideoKHR;
+ #endif /* defined(VK_KHR_video_decode_queue) */
+ #if defined(VK_KHR_video_encode_queue)
+ PFN_vkCmdEncodeVideoKHR vkCmdEncodeVideoKHR;
+-PFN_vkGetEncodedVideoSessionParametersKHR vkGetEncodedVideoSessionParametersKHR;
+-PFN_vkGetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR vkGetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR;
+ #endif /* defined(VK_KHR_video_encode_queue) */
+ #if defined(VK_KHR_video_queue)
+ PFN_vkBindVideoSessionMemoryKHR vkBindVideoSessionMemoryKHR;
+@@ -2748,9 +2720,6 @@ PFN_vkCmdSetViewportShadingRatePaletteNV vkCmdSetViewportShadingRatePaletteNV;
+ PFN_vkGetDynamicRenderingTilePropertiesQCOM vkGetDynamicRenderingTilePropertiesQCOM;
+ PFN_vkGetFramebufferTilePropertiesQCOM vkGetFramebufferTilePropertiesQCOM;
+ #endif /* defined(VK_QCOM_tile_properties) */
+-#if defined(VK_QNX_external_memory_screen_buffer)
+-PFN_vkGetScreenBufferPropertiesQNX vkGetScreenBufferPropertiesQNX;
+-#endif /* defined(VK_QNX_external_memory_screen_buffer) */
+ #if defined(VK_QNX_screen_surface)
+ PFN_vkCreateScreenSurfaceQNX vkCreateScreenSurfaceQNX;
+ PFN_vkGetPhysicalDeviceScreenPresentationSupportQNX vkGetPhysicalDeviceScreenPresentationSupportQNX;
+diff --git a/volk.h b/volk.h
+index df7912f..a8e12e4 100644
+--- a/volk.h
++++ b/volk.h
+@@ -15,7 +15,7 @@
+ #endif
+ 
+ /* VOLK_GENERATE_VERSION_DEFINE */
+-#define VOLK_HEADER_VERSION 255
++#define VOLK_HEADER_VERSION 250
+ /* VOLK_GENERATE_VERSION_DEFINE */
+ 
+ #ifndef VK_NO_PROTOTYPES
+@@ -363,9 +363,6 @@ struct VolkDeviceTable
+ 	PFN_vkDebugMarkerSetObjectNameEXT vkDebugMarkerSetObjectNameEXT;
+ 	PFN_vkDebugMarkerSetObjectTagEXT vkDebugMarkerSetObjectTagEXT;
+ #endif /* defined(VK_EXT_debug_marker) */
+-#if defined(VK_EXT_depth_bias_control)
+-	PFN_vkCmdSetDepthBias2EXT vkCmdSetDepthBias2EXT;
+-#endif /* defined(VK_EXT_depth_bias_control) */
+ #if defined(VK_EXT_descriptor_buffer)
+ 	PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT vkCmdBindDescriptorBufferEmbeddedSamplersEXT;
+ 	PFN_vkCmdBindDescriptorBuffersEXT vkCmdBindDescriptorBuffersEXT;
+@@ -711,7 +708,6 @@ struct VolkDeviceTable
+ #endif /* defined(VK_KHR_video_decode_queue) */
+ #if defined(VK_KHR_video_encode_queue)
+ 	PFN_vkCmdEncodeVideoKHR vkCmdEncodeVideoKHR;
+-	PFN_vkGetEncodedVideoSessionParametersKHR vkGetEncodedVideoSessionParametersKHR;
+ #endif /* defined(VK_KHR_video_encode_queue) */
+ #if defined(VK_KHR_video_queue)
+ 	PFN_vkBindVideoSessionMemoryKHR vkBindVideoSessionMemoryKHR;
+@@ -808,9 +804,6 @@ struct VolkDeviceTable
+ 	PFN_vkGetDynamicRenderingTilePropertiesQCOM vkGetDynamicRenderingTilePropertiesQCOM;
+ 	PFN_vkGetFramebufferTilePropertiesQCOM vkGetFramebufferTilePropertiesQCOM;
+ #endif /* defined(VK_QCOM_tile_properties) */
+-#if defined(VK_QNX_external_memory_screen_buffer)
+-	PFN_vkGetScreenBufferPropertiesQNX vkGetScreenBufferPropertiesQNX;
+-#endif /* defined(VK_QNX_external_memory_screen_buffer) */
+ #if defined(VK_VALVE_descriptor_set_host_mapping)
+ 	PFN_vkGetDescriptorSetHostMappingVALVE vkGetDescriptorSetHostMappingVALVE;
+ 	PFN_vkGetDescriptorSetLayoutHostMappingInfoVALVE vkGetDescriptorSetLayoutHostMappingInfoVALVE;
+@@ -1179,9 +1172,6 @@ extern PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT;
+ extern PFN_vkSetDebugUtilsObjectTagEXT vkSetDebugUtilsObjectTagEXT;
+ extern PFN_vkSubmitDebugUtilsMessageEXT vkSubmitDebugUtilsMessageEXT;
+ #endif /* defined(VK_EXT_debug_utils) */
+-#if defined(VK_EXT_depth_bias_control)
+-extern PFN_vkCmdSetDepthBias2EXT vkCmdSetDepthBias2EXT;
+-#endif /* defined(VK_EXT_depth_bias_control) */
+ #if defined(VK_EXT_descriptor_buffer)
+ extern PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT vkCmdBindDescriptorBufferEmbeddedSamplersEXT;
+ extern PFN_vkCmdBindDescriptorBuffersEXT vkCmdBindDescriptorBuffersEXT;
+@@ -1403,9 +1393,6 @@ extern PFN_vkGetBufferDeviceAddressKHR vkGetBufferDeviceAddressKHR;
+ extern PFN_vkGetBufferOpaqueCaptureAddressKHR vkGetBufferOpaqueCaptureAddressKHR;
+ extern PFN_vkGetDeviceMemoryOpaqueCaptureAddressKHR vkGetDeviceMemoryOpaqueCaptureAddressKHR;
+ #endif /* defined(VK_KHR_buffer_device_address) */
+-#if defined(VK_KHR_cooperative_matrix)
+-extern PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR;
+-#endif /* defined(VK_KHR_cooperative_matrix) */
+ #if defined(VK_KHR_copy_commands2)
+ extern PFN_vkCmdBlitImage2KHR vkCmdBlitImage2KHR;
+ extern PFN_vkCmdCopyBuffer2KHR vkCmdCopyBuffer2KHR;
+@@ -1610,8 +1597,6 @@ extern PFN_vkCmdDecodeVideoKHR vkCmdDecodeVideoKHR;
+ #endif /* defined(VK_KHR_video_decode_queue) */
+ #if defined(VK_KHR_video_encode_queue)
+ extern PFN_vkCmdEncodeVideoKHR vkCmdEncodeVideoKHR;
+-extern PFN_vkGetEncodedVideoSessionParametersKHR vkGetEncodedVideoSessionParametersKHR;
+-extern PFN_vkGetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR vkGetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR;
+ #endif /* defined(VK_KHR_video_encode_queue) */
+ #if defined(VK_KHR_video_queue)
+ extern PFN_vkBindVideoSessionMemoryKHR vkBindVideoSessionMemoryKHR;
+@@ -1749,9 +1734,6 @@ extern PFN_vkCmdSetViewportShadingRatePaletteNV vkCmdSetViewportShadingRatePalet
+ extern PFN_vkGetDynamicRenderingTilePropertiesQCOM vkGetDynamicRenderingTilePropertiesQCOM;
+ extern PFN_vkGetFramebufferTilePropertiesQCOM vkGetFramebufferTilePropertiesQCOM;
+ #endif /* defined(VK_QCOM_tile_properties) */
+-#if defined(VK_QNX_external_memory_screen_buffer)
+-extern PFN_vkGetScreenBufferPropertiesQNX vkGetScreenBufferPropertiesQNX;
+-#endif /* defined(VK_QNX_external_memory_screen_buffer) */
+ #if defined(VK_QNX_screen_surface)
+ extern PFN_vkCreateScreenSurfaceQNX vkCreateScreenSurfaceQNX;
+ extern PFN_vkGetPhysicalDeviceScreenPresentationSupportQNX vkGetPhysicalDeviceScreenPresentationSupportQNX;

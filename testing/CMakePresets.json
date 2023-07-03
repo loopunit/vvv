@@ -3,7 +3,7 @@
   "configurePresets": [
     {
       "name": "windows-base",
-	  "hidden": true,
+      "hidden": true,
       "displayName": "Base Preset",
       "description": "Default preset for Windows systems",
       "generator": "Ninja",

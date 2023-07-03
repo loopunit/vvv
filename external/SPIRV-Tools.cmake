@@ -315,7 +315,7 @@ macro(spvtools_pch SRCS PCHPREFIX)
   endif()
 endmacro(spvtools_pch)
 
-add_subdirectory(${SPIRV-Tools_SOURCE_DIR}/external)
+add_subdirectory(${SPIRV-Tools_SOURCE_DIR}/external ${CMAKE_CURRENT_BINARY_DIR}/SPIRV-Tools/external)
 
 # Warning about extra semi-colons.
 #
@@ -332,8 +332,8 @@ if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     add_compile_options("-Wextra-semi")
 endif()
 
-add_subdirectory(${SPIRV-Tools_SOURCE_DIR}/source)
-add_subdirectory(${SPIRV-Tools_SOURCE_DIR}/tools)
+add_subdirectory(${SPIRV-Tools_SOURCE_DIR}/source ${CMAKE_CURRENT_BINARY_DIR}/SPIRV-Tools/source)
+add_subdirectory(${SPIRV-Tools_SOURCE_DIR}/tools ${CMAKE_CURRENT_BINARY_DIR}/SPIRV-Tools/tools)
 
 #add_subdirectory(test)
 #add_subdirectory(examples)

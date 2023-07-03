@@ -16,7 +16,7 @@ CPMAddPackage(
 #message(STATUS "cd ${Vulkan-ValidationLayers_SOURCE_DIR}")
 #message(STATUS "git diff > ${Vulkan-ValidationLayers_PATCHFILE}")
 
-add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/scripts)
+add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/scripts ${CMAKE_CURRENT_BINARY_DIR}/Vulkan-ValidationLayers/scripts)
 
 set(VVL_CPP_STANDARD 17 CACHE STRING "Set the C++ standard to build against.")
 set(CMAKE_CXX_STANDARD ${VVL_CPP_STANDARD})
@@ -108,7 +108,7 @@ option(BUILD_LAYERS "Build validation layers" ON)
 option(BUILD_LAYER_SUPPORT_FILES "Install VkLayer_utils")
 
 if(BUILD_LAYERS OR BUILD_LAYER_SUPPORT_FILES)
-    add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/layers)
+    add_subdirectory(${Vulkan-ValidationLayers_SOURCE_DIR}/layers ${CMAKE_CURRENT_BINARY_DIR}/Vulkan-ValidationLayers/layers)
 endif()
 
 #option(BUILD_TESTS "Build the tests")
