@@ -66,8 +66,35 @@ configure_package_config_file(${Vulkan-Headers_SOURCE_DIR}/cmake/VulkanHeadersCo
 	NO_CHECK_REQUIRED_COMPONENTS_MACRO
 )
 
+function(vlk_get_header_version)
+    set(vulkan_core_header_file "${Vulkan-Headers_SOURCE_DIR}/include/vulkan/vulkan_core.h")
+    if (NOT EXISTS ${vulkan_core_header_file})
+        message(FATAL_ERROR "Couldn't find vulkan_core.h!")
+    endif()
+
+    file(READ ${vulkan_core_header_file} ver)
+
+    if (ver MATCHES "#define[ ]+VK_HEADER_VERSION_COMPLETE[ ]+VK_MAKE_API_VERSION\\([ ]*[0-9]+,[ ]*([0-9]+),[ ]*([0-9]+),[ ]*VK_HEADER_VERSION[ ]*\\)")
+        set(MAJOR_VERSION "${CMAKE_MATCH_1}")
+        set(MINOR_VERSION "${CMAKE_MATCH_2}")
+    else()
+        message(FATAL_ERROR "Couldn't get major/minor version")
+    endif()
+
+    if (ver MATCHES "#define[ ]+VK_HEADER_VERSION[ ]+([0-9]+)")
+        set(PATCH_VERSION "${CMAKE_MATCH_1}")
+    else()
+        message(FATAL_ERROR "Couldn't get the patch version")
+    endif()
+
+    set(VK_VERSION_STRING "${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}" PARENT_SCOPE)
+endfunction()
+vlk_get_header_version()
+
+project(VULKAN_HEADERS LANGUAGES C VERSION ${VK_VERSION_STRING})
+
 set(config_version "${CMAKE_CURRENT_BINARY_DIR}/VulkanHeadersConfigVersion.cmake")
 
-write_basic_package_version_file(${config_version} COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+write_basic_package_version_file(${config_version} VERSION ${VK_VERSION_STRING} COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
 
 install(FILES ${config_version} ${vulkan_headers_config} DESTINATION ${cmake_files_install_dir})

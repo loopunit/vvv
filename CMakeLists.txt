@@ -35,6 +35,8 @@ if (NOT ${vvv_PREREQ})
 	find_package(concurrentqueue REQUIRED)
 	find_package(libcuckoo REQUIRED)
 	find_package(Taskflow REQUIRED)
+	find_package(VulkanHeaders REQUIRED)
+	find_package(VulkanMemoryAllocator REQUIRED)
 
 	target_include_directories(vvv PUBLIC
 		"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -55,6 +57,7 @@ if (NOT ${vvv_PREREQ})
 			concurrentqueue
 			libcuckoo::libcuckoo
 			volk::volk
+			VulkanMemoryAllocator
 			#Polypropylene::Polypropylene
 			Taskflow)
 

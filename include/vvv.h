@@ -4,17 +4,36 @@
 
 #include <volk.h>
 
+#define VMA_HEAVY_ASSERT(expr)				   assert(expr)
+#define VMA_DEDICATED_ALLOCATION			   0
+#define VMA_DEBUG_MARGIN					   16
+#define VMA_DEBUG_DETECT_CORRUPTION			   1
+#define VMA_DEBUG_MIN_BUFFER_IMAGE_GRANULARITY 256
+#define VMA_USE_STL_SHARED_MUTEX			   1
+#define VMA_MEMORY_BUDGET					   0
+#define VMA_STATS_STRING_ENABLED			   0
+#define VMA_MAPPING_HYSTERESIS_ENABLED		   0
+#define VMA_STATIC_VULKAN_FUNCTIONS			   0
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS		   0
+
+#define VMA_VULKAN_VERSION 1003000 // Vulkan 1.3
+
+#define VMA_DEBUG_LOG(format, ...)                                                                                                                                                 \
+	do                                                                                                                                                                             \
+	{                                                                                                                                                                              \
+		printf(format, __VA_ARGS__);                                                                                                                                               \
+		printf("\n");                                                                                                                                                              \
+	}                                                                                                                                                                              \
+	while (false)
+
+#include <vk_mem_alloc.h>
+
 #include <algorithm>
 #include <array>
 #include <filesystem>
 
 namespace vvv
 {
-	inline void init(int argc, char** argv)
-	{
-		::_wputenv_s(L"VK_LAYER_PATH", std::filesystem::path(argv[0]).parent_path().c_str());
-	}
-
 	template<typename T_VAL>
 	inline constexpr auto enum_value(T_VAL val) -> std::underlying_type<T_VAL>::type
 	{
@@ -83,16 +102,6 @@ namespace vvv
 		};
 	};
 
-	static inline result<void> load_vulkan()
-	{
-		if (auto r = volkInitialize(); r != VK_SUCCESS)
-		{
-			return vvv_err_not_specified("volkInitialize failed!");
-		}
-
-		return {};
-	}
-
 	struct physical_device_info
 	{
 		VkPhysicalDevice					m_physical_device;
@@ -128,8 +137,15 @@ namespace vvv
 		}
 	};
 
-	// TODO: queue family selection is a clusterfuck and probably better handled with a lookup table based on the device UUID
-	// since selecting exclusive queues isn't necessarily the best.
+	struct exclusive_queue_families
+	{
+		static inline constexpr size_t invalid_family = 0xffffffffull;
+		size_t						   gfx_family{invalid_family};
+		size_t						   transfer_family{invalid_family};
+		size_t						   compute_family{invalid_family};
+		size_t						   video_decode_family{invalid_family};
+		size_t						   video_encode_family{invalid_family};
+	};
 
 	struct queue_family_desc
 	{
@@ -143,7 +159,7 @@ namespace vvv
 			COUNT
 		};
 
-		size_t					m_family_index;
+		size_t					m_family_index{exclusive_queue_families::invalid_family};
 		VkQueueFamilyProperties m_properties{};
 		type					m_type{type::COUNT};
 
@@ -180,19 +196,248 @@ namespace vvv
 		}
 	};
 
-	struct physical_device
+	class raw_Vk
 	{
-		std::unique_ptr<physical_device_info> m_device_info;
-		physical_device(std::unique_ptr<physical_device_info>&& di) : m_device_info{std::move(di)} { }
+	protected:
+		const VkAllocationCallbacks* m_allocation_callbacks{nullptr};
+		VkAllocationCallbacks		 m_custom_allocation_callbacks;
+
+	public:
+		raw_Vk()
+			: m_custom_allocation_callbacks{
+				  .pUserData	 = this,
+				  .pfnAllocation = [](void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope) -> void*
+				  {
+					  return nullptr;
+				  },
+				  .pfnReallocation = [](void* pUserData, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope allocationScope) -> void*
+				  {
+					  return nullptr;
+				  },
+				  .pfnFree				 = [](void* pUserData, void* pMemory) {},
+				  .pfnInternalAllocation = [](void* pUserData, size_t size, VkInternalAllocationType allocationType, VkSystemAllocationScope allocationScope) {},
+				  .pfnInternalFree		 = [](void* pUserData, size_t size, VkInternalAllocationType allocationType, VkSystemAllocationScope allocationScope) {}}
+		{ }
+
+		virtual ~raw_Vk() = default;
+
+		auto allocation_callbacks() const
+		{
+			return m_allocation_callbacks;
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(int argc, char** argv)
+		{
+			::_wputenv_s(L"VK_LAYER_PATH", std::filesystem::path(argv[0]).parent_path().c_str());
+
+			if (auto r = volkInitialize(); r != VK_SUCCESS)
+			{
+				return vvv_err_not_specified("volkInitialize failed!");
+			}
+
+			// auto version = volkGetInstanceVersion();
+			// printf("Vulkan version %d.%d.%d initialized.\n", VK_VERSION_MAJOR(version), VK_VERSION_MINOR(version), VK_VERSION_PATCH(version));
+
+			return std::make_unique<T_IMPL>();
+		}
+	};
+
+	class raw_VkInstance
+	{
+	protected:
+		std::shared_ptr<raw_Vk>	 m_vk;
+		VkInstance				 m_instance{nullptr};
+		VkDebugReportCallbackEXT m_debug_report_callbacks{nullptr};
+
+	public:
+		raw_VkInstance(std::shared_ptr<raw_Vk> vk, VkInstance inst, VkDebugReportCallbackEXT cb) : m_vk{vk}, m_instance{inst}, m_debug_report_callbacks{cb} { }
+
+		virtual ~raw_VkInstance()
+		{
+			if (m_debug_report_callbacks)
+			{
+				vkDestroyDebugReportCallbackEXT(m_instance, m_debug_report_callbacks, m_vk->allocation_callbacks());
+			}
+
+			if (m_instance)
+			{
+				vkDestroyInstance(m_instance, m_vk->allocation_callbacks());
+			}
+		}
+
+		auto allocation_callbacks() const
+		{
+			return m_vk->allocation_callbacks();
+		}
+
+		auto get_instance() const
+		{
+			return m_instance;
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_Vk> vk)
+		{
+			VkApplicationInfo application_info =
+				{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "Loopunit", VK_MAKE_VERSION(0, 0, 1), "vvv", VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_3};
+
+			VkInstanceCreateInfo instance_create_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, nullptr, 0, &application_info, 0, nullptr, 0, nullptr};
+
+			// Extensions
+
+			uint32_t availiable_extension_count = 0;
+			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, nullptr);
+			std::vector<VkExtensionProperties> available_extensions(availiable_extension_count);
+			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, available_extensions.data());
+
+			const char* desired_extensions[] = {
+				VK_KHR_SURFACE_EXTENSION_NAME,
+				VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME,
+				VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
+				VK_KHR_DISPLAY_EXTENSION_NAME,
+				VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+				VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+				VK_EXT_DIRECT_MODE_DISPLAY_EXTENSION_NAME,
+
+#if defined(_WIN32)
+				VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+				VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME,
+			// VK_NV_ACQUIRE_WINRT_DISPLAY_EXTENSION_NAME,
+#else
+				VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+#endif
+			};
+
+			std::vector<const char*> enabled_extensions;
+
+			for (auto ext_str : desired_extensions)
+			{
+				for (auto& ext : available_extensions)
+				{
+					if (::stricmp(ext.extensionName, ext_str) == 0)
+					{
+						enabled_extensions.push_back(ext_str);
+						break;
+					}
+				}
+			}
+
+			if (enabled_extensions.size() > 0)
+			{
+				instance_create_info.enabledExtensionCount	 = static_cast<uint32_t>(enabled_extensions.size());
+				instance_create_info.ppEnabledExtensionNames = enabled_extensions.data();
+			}
+
+			// Layers
+
+			uint32_t availiable_layer_count = 0;
+			vkEnumerateInstanceLayerProperties(&availiable_layer_count, nullptr);
+			std::vector<VkLayerProperties> available_layers(availiable_layer_count);
+			vkEnumerateInstanceLayerProperties(&availiable_layer_count, available_layers.data());
+
+			std::vector<const char*> enabled_layers;
+			const char*				 desired_layers[] = {
+				 "VK_LAYER_KHRONOS_validation",
+				 "VK_LAYER_NV_optimus",
+			 };
+
+			for (auto ext_str : desired_layers)
+			{
+				for (auto& ext : available_layers)
+				{
+					if (::stricmp(ext.layerName, ext_str) == 0)
+					{
+						enabled_layers.push_back(ext_str);
+						break;
+					}
+				}
+			}
+
+			if (enabled_layers.size() > 0)
+			{
+				instance_create_info.enabledLayerCount	 = static_cast<uint32_t>(enabled_layers.size());
+				instance_create_info.ppEnabledLayerNames = enabled_layers.data();
+			}
+
+			vvv_LEAF_AUTO(
+				new_instance,
+				[&]() -> result<VkInstance>
+				{
+					VkInstance new_instance{nullptr};
+					if (auto res = vkCreateInstance(&instance_create_info, vk->allocation_callbacks(), &new_instance); res != VK_SUCCESS)
+					{
+						return vvv_err_not_specified(fmt::format("vkCreateInstance failed with: {}", VkResult_string(res)));
+					}
+					else
+					{
+						return new_instance;
+					}
+				}());
+
+			volkLoadInstanceOnly(new_instance);
+
+			vvv_CLEAF_AUTO(
+				debug_report_callbacks,
+				[&]() -> result<VkDebugReportCallbackEXT>
+				{
+					VkDebugReportCallbackEXT debug_report_callbacks;
+
+					VkDebugReportCallbackCreateInfoEXT callbackCreateInfo;
+					callbackCreateInfo.sType	 = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
+					callbackCreateInfo.pNext	 = nullptr;
+					callbackCreateInfo.pUserData = nullptr;
+					callbackCreateInfo.flags =
+						VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+					callbackCreateInfo.pfnCallback = [](VkDebugReportFlagsEXT	   flags,
+														VkDebugReportObjectTypeEXT objectType,
+														uint64_t				   object,
+														size_t					   location,
+														int32_t					   messageCode,
+														const char*				   pLayerPrefix,
+														const char*				   pMessage,
+														void*					   pUserData) -> VkBool32
+					{
+						::puts(pMessage);
+						return VK_FALSE;
+					};
+
+					if (auto res = vkCreateDebugReportCallbackEXT(new_instance, &callbackCreateInfo, vk->allocation_callbacks(), &debug_report_callbacks); res != VK_SUCCESS)
+					{
+						return vvv_err_not_specified(fmt::format("vkCreateDebugReportCallbackEXT failed with: {}", VkResult_string(res)));
+					}
+
+					return debug_report_callbacks;
+				}(),
+				[&]()
+				{
+					vkDestroyInstance(new_instance, vk->allocation_callbacks());
+				});
+
+			return std::make_unique<T_IMPL>(vk, new_instance, debug_report_callbacks);
+		}
+	};
+
+	class raw_VkPhysicalDevice
+	{
+	public:
+		using queue_families = std::array<queue_family_desc, enum_value(queue_family_desc::type::COUNT)>;
+
+	protected:
+		std::shared_ptr<raw_VkInstance>		  m_instance;
+		std::shared_ptr<physical_device_info> m_info;
 
 		result<std::vector<VkQueueFamilyProperties>> get_queue_family_properties()
 		{
 			uint32_t count = 0;
-			if (vkGetPhysicalDeviceQueueFamilyProperties(m_device_info->m_physical_device, &count, nullptr); count > 0)
+			if (vkGetPhysicalDeviceQueueFamilyProperties(m_info->m_physical_device, &count, nullptr); count > 0)
 			{
 				std::vector<VkQueueFamilyProperties> queue_family_props(count);
 
-				vkGetPhysicalDeviceQueueFamilyProperties(m_device_info->m_physical_device, &count, queue_family_props.data());
+				vkGetPhysicalDeviceQueueFamilyProperties(m_info->m_physical_device, &count, queue_family_props.data());
 				return queue_family_props;
 			}
 			else
@@ -205,15 +450,6 @@ namespace vvv
 		{
 			return ((props.queueFlags & flag_bits) == flag_bits);
 		}
-
-		struct exclusive_queue_families
-		{
-			size_t gfx_family{0xffffffffull};
-			size_t transfer_family{0xffffffffull};
-			size_t compute_family{0xffffffffull};
-			size_t video_decode_family{0xffffffffull};
-			size_t video_encode_family{0xffffffffull};
-		};
 
 		result<exclusive_queue_families> find_exclusive_queue_families(const std::vector<VkQueueFamilyProperties>& props)
 		{
@@ -228,7 +464,7 @@ namespace vvv
 						return i;
 					}
 				}
-				return 0xffffffffull;
+				return exclusive_queue_families::invalid_family;
 			};
 
 			res.gfx_family			= find_exclusive_family(VK_QUEUE_GRAPHICS_BIT);
@@ -251,9 +487,7 @@ namespace vvv
 			return find_exclusive_queue_families(queue_family_props);
 		}
 
-		using queue_families = std::array<queue_family_desc, enum_value(queue_family_desc::type::COUNT)>;
-
-		result<queue_families> get_queue_families()
+		result<queue_families> build_queue_families()
 		{
 			queue_families res;
 			vvv_LEAF_AUTO(queue_family_props, get_queue_family_properties());
@@ -263,7 +497,7 @@ namespace vvv
 			{
 				if (var <= queue_family_props.size())
 				{
-					res[enum_value(flag)] = queue_family_desc(var, queue_family_props[var], flag, m_device_info->m_physical_device);
+					res[enum_value(flag)] = queue_family_desc(var, queue_family_props[var], flag, m_info->m_physical_device);
 				}
 			};
 
@@ -275,197 +509,368 @@ namespace vvv
 
 			return res;
 		}
-	};
 
-	struct surface
-	{
-		VkSurfaceKHR m_surface;
-		surface(VkSurfaceKHR surf) : m_surface(surf) { }
-	};
+		queue_families m_queue_families;
 
-	struct instance
-	{
-		struct raw_VkInstance
+	public:
+		raw_VkPhysicalDevice(std::shared_ptr<raw_VkInstance> instance, std::shared_ptr<physical_device_info> info) : m_instance{instance}, m_info{info}
 		{
-			raw_VkInstance(VkInstance inst) : m_value{inst} { }
-
-			~raw_VkInstance()
+			if (auto queue_families_res = build_queue_families())
 			{
-				if (m_value)
-				{
-					vkDestroyInstance(m_value, nullptr);
-				}
-			}
-
-			VkInstance m_value{nullptr};
-
-			operator VkInstance()
-			{
-				return m_value;
-			}
-
-			operator VkInstance() const
-			{
-				return m_value;
-			}
-		};
-		std::unique_ptr<raw_VkInstance> m_vulkan_instance;
-
-		struct raw_VkDebugReportCallbackEXT
-		{
-			raw_VkDebugReportCallbackEXT(VkInstance inst, VkDebugReportCallbackEXT cb) : m_vulkan_instance{inst}, m_value{cb} { }
-
-			~raw_VkDebugReportCallbackEXT()
-			{
-				if (m_value && m_vulkan_instance)
-				{
-					vkDestroyDebugReportCallbackEXT(m_vulkan_instance, m_value, nullptr);
-				}
-			}
-
-			VkInstance				 m_vulkan_instance{nullptr};
-			VkDebugReportCallbackEXT m_value{nullptr};
-
-			operator VkDebugReportCallbackEXT()
-			{
-				return m_value;
-			}
-
-			operator VkDebugReportCallbackEXT() const
-			{
-				return m_value;
-			}
-		};
-		std::unique_ptr<raw_VkDebugReportCallbackEXT> m_instance_debug_callback;
-
-		instance()
-		{
-			VkApplicationInfo application_info =
-				{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "Loopunit", VK_MAKE_VERSION(0, 0, 1), "vvv", VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_3};
-
-			VkInstanceCreateInfo instance_create_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, nullptr, 0, &application_info, 0, nullptr, 0, nullptr};
-
-			// Extensions
-
-			uint32_t availiable_extension_count = 0;
-			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, nullptr);
-			std::vector<VkExtensionProperties> available_extensions(availiable_extension_count);
-			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, available_extensions.data());
-
-			std::vector<const char*> enabled_extensions;
-			auto					 find_and_add_extension = [&](const char* ext_name)
-			{
-				for (auto& ext : available_extensions)
-				{
-					if (::stricmp(ext.extensionName, ext_name) == 0)
-					{
-						enabled_extensions.push_back(ext_name);
-						return;
-					}
-				}
-			};
-
-			find_and_add_extension(VK_KHR_SURFACE_EXTENSION_NAME);
-			find_and_add_extension(VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME);
-			find_and_add_extension(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-			find_and_add_extension(VK_KHR_DISPLAY_EXTENSION_NAME);
-
-#if defined(_WIN32)
-			find_and_add_extension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-			find_and_add_extension(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
-			find_and_add_extension(VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME);
-			find_and_add_extension(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
-			find_and_add_extension(VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME);
-			// find_and_add_extension(VK_NV_ACQUIRE_WINRT_DISPLAY_EXTENSION_NAME);
-#else
-			find_and_add_extension(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
-#endif
-			if (enabled_extensions.size() > 0)
-			{
-				instance_create_info.enabledExtensionCount	 = static_cast<uint32_t>(enabled_extensions.size());
-				instance_create_info.ppEnabledExtensionNames = enabled_extensions.data();
-			}
-
-			// Layers
-
-			uint32_t availiable_layer_count = 0;
-			vkEnumerateInstanceLayerProperties(&availiable_layer_count, nullptr);
-			std::vector<VkLayerProperties> available_layers(availiable_layer_count);
-			vkEnumerateInstanceLayerProperties(&availiable_layer_count, available_layers.data());
-
-			std::vector<const char*> enabled_layers;
-			auto					 find_and_add_layer = [&](const char* layer_name)
-			{
-				for (auto& l : available_layers)
-				{
-					if (::stricmp(l.layerName, layer_name) == 0)
-					{
-						enabled_layers.push_back(layer_name);
-						return;
-					}
-				}
-			};
-
-			find_and_add_layer("VK_LAYER_KHRONOS_validation");
-
-			if (enabled_layers.size() > 0)
-			{
-				instance_create_info.enabledLayerCount	 = static_cast<uint32_t>(enabled_layers.size());
-				instance_create_info.ppEnabledLayerNames = enabled_layers.data();
-			}
-
-			VkInstance temp_instance;
-			if (auto res = vkCreateInstance(&instance_create_info, nullptr, &temp_instance); res != VK_SUCCESS)
-			{
-				vvv_throw_not_specified(fmt::format("vkCreateInstance failed with: {}", VkResult_string(res)));
+				m_queue_families = std::move(*queue_families_res);
 			}
 			else
 			{
-				m_vulkan_instance = std::make_unique<raw_VkInstance>(temp_instance);
+				throw queue_families_res.error();
+			}
+		}
+
+		virtual ~raw_VkPhysicalDevice() = default;
+
+		auto allocation_callbacks() const
+		{
+			return m_instance->allocation_callbacks();
+		}
+
+		auto get_instance() const
+		{
+			return m_instance->get_instance();
+		}
+
+		const queue_families& get_queue_families()
+		{
+			return m_queue_families;
+		}
+
+		const physical_device_info& get_physical_device_info()
+		{
+			return *m_info;
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_VkInstance> instance, std::shared_ptr<physical_device_info> info)
+		{
+			return std::make_unique<T_IMPL>(instance, info);
+		}
+	};
+
+	class raw_VkDevice
+	{
+	protected:
+		std::shared_ptr<raw_VkPhysicalDevice> m_physical_device;
+		VkDevice							  m_device;
+		VmaAllocator						  m_allocator;
+		VolkDeviceTable						  m_volk_device_table;
+
+	public:
+		raw_VkDevice(std::shared_ptr<raw_VkPhysicalDevice> phys_dev, VkDevice device, VmaAllocator allocator, VolkDeviceTable volk_device_table)
+			: m_physical_device{phys_dev}
+			, m_device{device}
+			, m_allocator{allocator}
+			, m_volk_device_table{volk_device_table}
+		{ }
+
+		virtual ~raw_VkDevice()
+		{
+			if (m_device)
+			{
+				m_volk_device_table.vkDestroyDevice(m_device, m_physical_device->allocation_callbacks());
+			}
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_VkPhysicalDevice> phys_dev)
+		{
+			const auto&							 queue_families = phys_dev->get_queue_families();
+			std::vector<VkDeviceQueueCreateInfo> queue_families_ci;
+			std::vector<float>					 queue_families_ci_prio;
+
+			queue_families_ci.reserve(queue_families.size());
+			queue_families_ci_prio.reserve(queue_families.size());
+
+			for (size_t i = 0; i < queue_families.size(); ++i)
+			{
+				if (queue_families[i].m_family_index != exclusive_queue_families::invalid_family)
+				{
+					queue_families_ci_prio.push_back(1.0f);
+
+					queue_families_ci.push_back(
+						{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = static_cast<uint32_t>(queue_families[i].m_family_index), .queueCount = 1});
+
+					queue_families_ci[i].pQueuePriorities = &(*queue_families_ci_prio.rbegin());
+				}
 			}
 
-			volkLoadInstanceOnly(*m_vulkan_instance);
+			VkPhysicalDeviceFeatures device_features{};
 
-			//
+			VkDeviceCreateInfo create_info{};
+			create_info.sType				 = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+			create_info.pQueueCreateInfos	 = queue_families_ci.data();
+			create_info.queueCreateInfoCount = queue_families_ci.size();
+			create_info.pEnabledFeatures	 = &device_features;
 
-			VkDebugReportCallbackCreateInfoEXT callbackCreateInfo;
-			callbackCreateInfo.sType	 = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
-			callbackCreateInfo.pNext	 = nullptr;
-			callbackCreateInfo.pUserData = this;
-			callbackCreateInfo.flags =
-				VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
-			callbackCreateInfo.pfnCallback = [](VkDebugReportFlagsEXT	   flags,
-												VkDebugReportObjectTypeEXT objectType,
-												uint64_t				   object,
-												size_t					   location,
-												int32_t					   messageCode,
-												const char*				   pLayerPrefix,
-												const char*				   pMessage,
-												void*					   pUserData) -> VkBool32
-			{
-				::puts(pMessage);
-				return VK_FALSE;
+			const auto& phys_dev_info = phys_dev->get_physical_device_info();
+
+			uint32_t extension_count = 0;
+			vkEnumerateDeviceExtensionProperties(phys_dev_info.m_physical_device, nullptr, &extension_count, nullptr);
+
+			std::vector<VkExtensionProperties> available_extensions(extension_count);
+			vkEnumerateDeviceExtensionProperties(phys_dev_info.m_physical_device, nullptr, &extension_count, available_extensions.data());
+
+			const char* desired_extensions[] = {
+				VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+				VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+				VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME,
+				VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME,
+				VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME,
+				VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME,
+				VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
+				VK_KHR_PRESENT_ID_EXTENSION_NAME,
+				VK_KHR_PRESENT_WAIT_EXTENSION_NAME,
+				VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+				VK_KHR_RAY_QUERY_EXTENSION_NAME,
+				VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
+				VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+				VK_KHR_SHADER_CLOCK_EXTENSION_NAME,
+				VK_KHR_SHADER_SUBGROUP_UNIFORM_CONTROL_FLOW_EXTENSION_NAME,
+				VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+				VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME,
+				VK_KHR_VIDEO_DECODE_H264_EXTENSION_NAME,
+				VK_KHR_VIDEO_DECODE_H265_EXTENSION_NAME,
+				VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME,
+				VK_KHR_VIDEO_QUEUE_EXTENSION_NAME,
+				VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
+				VK_KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME,
+				VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME,
+				VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME,
+				VK_EXT_BORDER_COLOR_SWIZZLE_EXTENSION_NAME,
+				VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
+				VK_EXT_COLOR_WRITE_ENABLE_EXTENSION_NAME,
+				VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME,
+				VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME,
+				VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME,
+				VK_EXT_DEPTH_CLAMP_ZERO_ONE_EXTENSION_NAME,
+				VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME,
+				VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME,
+				VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME,
+				VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
+				VK_EXT_DISCARD_RECTANGLES_EXTENSION_NAME,
+				VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
+				VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME,
+				VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME,
+				VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME,
+				VK_EXT_GLOBAL_PRIORITY_QUERY_EXTENSION_NAME,
+				VK_EXT_GLOBAL_PRIORITY_EXTENSION_NAME,
+				VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
+				VK_EXT_HDR_METADATA_EXTENSION_NAME,
+				VK_EXT_IMAGE_2D_VIEW_OF_3D_EXTENSION_NAME,
+				VK_EXT_IMAGE_SLICED_VIEW_OF_3D_EXTENSION_NAME,
+				VK_EXT_IMAGE_VIEW_MIN_LOD_EXTENSION_NAME,
+				VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME,
+				VK_EXT_LINE_RASTERIZATION_EXTENSION_NAME,
+				VK_EXT_LOAD_STORE_OP_NONE_EXTENSION_NAME,
+				VK_EXT_MEMORY_BUDGET_EXTENSION_NAME,
+				VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME,
+				VK_EXT_MESH_SHADER_EXTENSION_NAME,
+				VK_EXT_MULTI_DRAW_EXTENSION_NAME,
+				VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME,
+				VK_EXT_NON_SEAMLESS_CUBE_MAP_EXTENSION_NAME,
+				VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
+				VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME,
+				VK_EXT_PCI_BUS_INFO_EXTENSION_NAME,
+				VK_EXT_PIPELINE_LIBRARY_GROUP_HANDLES_EXTENSION_NAME,
+				VK_EXT_PIPELINE_ROBUSTNESS_EXTENSION_NAME,
+				VK_EXT_POST_DEPTH_COVERAGE_EXTENSION_NAME,
+				VK_EXT_PRIMITIVE_TOPOLOGY_LIST_RESTART_EXTENSION_NAME,
+				VK_EXT_PRIMITIVES_GENERATED_QUERY_EXTENSION_NAME,
+				VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME,
+				VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+				VK_EXT_ROBUSTNESS_2_EXTENSION_NAME,
+				VK_EXT_SAMPLE_LOCATIONS_EXTENSION_NAME,
+				VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+				VK_EXT_SHADER_IMAGE_ATOMIC_INT64_EXTENSION_NAME,
+				VK_EXT_SHADER_MODULE_IDENTIFIER_EXTENSION_NAME,
+				VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
+				VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
+				VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,
+				VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME,
+				VK_EXT_YCBCR_IMAGE_ARRAYS_EXTENSION_NAME,
+				VK_NV_ACQUIRE_WINRT_DISPLAY_EXTENSION_NAME,
+				VK_NV_CLIP_SPACE_W_SCALING_EXTENSION_NAME,
+				VK_NV_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
+				VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME,
+				VK_NV_COPY_MEMORY_INDIRECT_EXTENSION_NAME,
+				VK_NV_CORNER_SAMPLED_IMAGE_EXTENSION_NAME,
+				VK_NV_COVERAGE_REDUCTION_MODE_EXTENSION_NAME,
+				//"VK_NV_cuda_kernel_launch", // TODO: this one is undocumented and interesting!
+				VK_NV_DEDICATED_ALLOCATION_IMAGE_ALIASING_EXTENSION_NAME,
+				VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME,
+				VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME,
+				VK_NV_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME,
+				VK_NV_FILL_RECTANGLE_EXTENSION_NAME,
+				VK_NV_FRAGMENT_COVERAGE_TO_COLOR_EXTENSION_NAME,
+				VK_NV_FRAGMENT_SHADING_RATE_ENUMS_EXTENSION_NAME,
+				VK_NV_FRAMEBUFFER_MIXED_SAMPLES_EXTENSION_NAME,
+				VK_NV_GEOMETRY_SHADER_PASSTHROUGH_EXTENSION_NAME,
+				VK_NV_INHERITED_VIEWPORT_SCISSOR_EXTENSION_NAME,
+				VK_NV_LINEAR_COLOR_ATTACHMENT_EXTENSION_NAME,
+				VK_NV_LOW_LATENCY_EXTENSION_NAME,
+				VK_NV_MEMORY_DECOMPRESSION_EXTENSION_NAME,
+				VK_NV_MESH_SHADER_EXTENSION_NAME,
+				VK_NV_OPTICAL_FLOW_EXTENSION_NAME,
+				VK_NV_RAY_TRACING_EXTENSION_NAME,
+				VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME,
+				VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME,
+				VK_NV_REPRESENTATIVE_FRAGMENT_TEST_EXTENSION_NAME,
+				VK_NV_SAMPLE_MASK_OVERRIDE_COVERAGE_EXTENSION_NAME,
+				VK_NV_SCISSOR_EXCLUSIVE_EXTENSION_NAME,
+				VK_NV_SHADER_IMAGE_FOOTPRINT_EXTENSION_NAME,
+				VK_NV_SHADER_SM_BUILTINS_EXTENSION_NAME,
+				VK_NV_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME,
+				VK_NV_SHADING_RATE_IMAGE_EXTENSION_NAME,
+				VK_NV_VIEWPORT_ARRAY2_EXTENSION_NAME,
+				VK_NV_VIEWPORT_SWIZZLE_EXTENSION_NAME,
+				VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
+				VK_NVX_BINARY_IMPORT_EXTENSION_NAME,
+				VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME,
+				VK_NVX_MULTIVIEW_PER_VIEW_ATTRIBUTES_EXTENSION_NAME,
+				VK_AMD_BUFFER_MARKER_EXTENSION_NAME,
+				VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+				VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
 			};
 
-			VkDebugReportCallbackEXT temp_debug_callback{nullptr};
-			if (auto res = vkCreateDebugReportCallbackEXT(*m_vulkan_instance, &callbackCreateInfo, nullptr, &temp_debug_callback); res != VK_SUCCESS)
-			{
-				vvv_throw_not_specified(fmt::format("vkCreateDebugReportCallbackEXT failed with: {}", VkResult_string(res)));
-			}
-			m_instance_debug_callback = std::make_unique<raw_VkDebugReportCallbackEXT>(*m_vulkan_instance, temp_debug_callback);
-		}
+			std::vector<const char*> enabled_extensions;
 
-		~instance()
-		{
-			m_instance_debug_callback.reset();
-			m_vulkan_instance.reset();
+			for (auto ext_str : desired_extensions)
+			{
+				for (auto& ext : available_extensions)
+				{
+					if (::stricmp(ext.extensionName, ext_str) == 0)
+					{
+						enabled_extensions.push_back(ext_str);
+						break;
+					}
+				}
+			}
+
+			if (enabled_extensions.size() > 0)
+			{
+				create_info.enabledExtensionCount	= static_cast<uint32_t>(enabled_extensions.size());
+				create_info.ppEnabledExtensionNames = enabled_extensions.data();
+			}
+
+			// Device layers are deprecated and ignored
+			create_info.enabledLayerCount	= 0;
+			create_info.ppEnabledLayerNames = nullptr;
+
+			VkDevice device{nullptr};
+			if (auto res = vkCreateDevice(phys_dev_info.m_physical_device, &create_info, phys_dev->allocation_callbacks(), &device); res != VK_SUCCESS) [[unlikely]]
+			{
+				return vvv_err_not_specified(fmt::format("Unable to create logical device: {}", VkResult_string(res)));
+			}
+
+			VolkDeviceTable vdt;
+			volkLoadDeviceTable(&vdt, device);
+
+			VmaVulkanFunctions vma_funcs;
+
+			vma_funcs.vkGetPhysicalDeviceProperties		  = vkGetPhysicalDeviceProperties;
+			vma_funcs.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+			vma_funcs.vkAllocateMemory					  = vdt.vkAllocateMemory;
+			vma_funcs.vkFreeMemory						  = vdt.vkFreeMemory;
+			vma_funcs.vkMapMemory						  = vdt.vkMapMemory;
+			vma_funcs.vkUnmapMemory						  = vdt.vkUnmapMemory;
+			vma_funcs.vkFlushMappedMemoryRanges			  = vdt.vkFlushMappedMemoryRanges;
+			vma_funcs.vkInvalidateMappedMemoryRanges	  = vdt.vkInvalidateMappedMemoryRanges;
+			vma_funcs.vkBindBufferMemory				  = vdt.vkBindBufferMemory;
+			vma_funcs.vkBindImageMemory					  = vdt.vkBindImageMemory;
+			vma_funcs.vkGetBufferMemoryRequirements		  = vdt.vkGetBufferMemoryRequirements;
+			vma_funcs.vkGetImageMemoryRequirements		  = vdt.vkGetImageMemoryRequirements;
+			vma_funcs.vkCreateBuffer					  = vdt.vkCreateBuffer;
+			vma_funcs.vkDestroyBuffer					  = vdt.vkDestroyBuffer;
+			vma_funcs.vkCreateImage						  = vdt.vkCreateImage;
+			vma_funcs.vkDestroyImage					  = vdt.vkDestroyImage;
+			vma_funcs.vkCmdCopyBuffer					  = vdt.vkCmdCopyBuffer;
+#if VMA_DEDICATED_ALLOCATION || VMA_VULKAN_VERSION >= 1001000
+			vma_funcs.vkGetBufferMemoryRequirements2KHR = vdt.vkGetBufferMemoryRequirements2KHR;
+			vma_funcs.vkGetImageMemoryRequirements2KHR	= vdt.vkGetImageMemoryRequirements2KHR;
+#endif
+#if VMA_BIND_MEMORY2 || VMA_VULKAN_VERSION >= 1001000
+			vma_funcs.vkBindBufferMemory2KHR = vdt.vkBindBufferMemory2KHR;
+			vma_funcs.vkBindImageMemory2KHR	 = vdt.vkBindImageMemory2KHR;
+#endif
+#if VMA_MEMORY_BUDGET || VMA_VULKAN_VERSION >= 1001000
+
+			vma_funcs.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2KHR;
+#endif
+#if VMA_VULKAN_VERSION >= 1003000
+			vma_funcs.vkGetDeviceBufferMemoryRequirements = vdt.vkGetDeviceBufferMemoryRequirements;
+			vma_funcs.vkGetDeviceImageMemoryRequirements  = vdt.vkGetDeviceImageMemoryRequirements;
+#endif
+
+			VmaAllocatorCreateInfo allocatorCreateInfo = {};
+			allocatorCreateInfo.vulkanApiVersion	   = VK_API_VERSION_1_3;
+			allocatorCreateInfo.physicalDevice		   = phys_dev_info.m_physical_device;
+			allocatorCreateInfo.device				   = device;
+			allocatorCreateInfo.instance			   = phys_dev->get_instance();
+			allocatorCreateInfo.pVulkanFunctions	   = &vma_funcs;
+
+			VmaAllocator allocator;
+			if (auto res = vmaCreateAllocator(&allocatorCreateInfo, &allocator); res != VK_SUCCESS) [[unlikely]]
+			{
+				vdt.vkDestroyDevice(device, phys_dev->allocation_callbacks());
+				return vvv_err_not_specified(fmt::format("vmaCreateAllocatorfailed with: {}", VkResult_string(res)));
+			}
+
+			return std::make_unique<T_IMPL>(phys_dev, device, allocator, vdt);
 		}
+	};
+} // namespace vvv
+
+namespace vvv
+{
+	class vk_device
+		: public raw_VkDevice
+		, public std::enable_shared_from_this<vk_device>
+	{
+	public:
+		using raw_VkDevice::raw_VkDevice;
+		virtual ~vk_device() = default;
+	};
+
+	class vk_physical_device
+		: public raw_VkPhysicalDevice
+		, public std::enable_shared_from_this<vk_physical_device>
+	{
+	public:
+		using raw_VkPhysicalDevice::raw_VkPhysicalDevice;
+		virtual ~vk_physical_device() = default;
+
+		auto create_device()
+		{
+			return raw_VkDevice::factory<vk_device>(shared_from_this());
+		}
+	};
+
+	class vk_instance
+		: public raw_VkInstance
+		, public std::enable_shared_from_this<vk_instance>
+	{
+	public:
+		using raw_VkInstance::raw_VkInstance;
+		virtual ~vk_instance() = default;
 
 		template<typename T_FUN>
 		result<std::vector<std::unique_ptr<physical_device_info>>> discover_physical_devices(T_FUN filter_fun)
 		{
 			uint32_t num_devices = 0;
-			if (auto ret = vkEnumeratePhysicalDevices(*m_vulkan_instance, &num_devices, nullptr); ret != VK_SUCCESS)
+			if (auto ret = vkEnumeratePhysicalDevices(m_instance, &num_devices, nullptr); ret != VK_SUCCESS)
 			{
 				return vvv_err_not_specified(fmt::format("Failed to count physical devices: {}", VkResult_string(ret)));
 			}
@@ -476,7 +881,7 @@ namespace vvv
 			}
 
 			std::vector<VkPhysicalDevice> physical_devices(num_devices);
-			if (auto ret = vkEnumeratePhysicalDevices(*m_vulkan_instance, &num_devices, &physical_devices[0]); ret != VK_SUCCESS)
+			if (auto ret = vkEnumeratePhysicalDevices(m_instance, &num_devices, &physical_devices[0]); ret != VK_SUCCESS)
 			{
 				return vvv_err_not_specified(fmt::format("Failed to enumerate physical devices: {}", VkResult_string(ret)));
 			}
@@ -619,29 +1024,28 @@ namespace vvv
 
 		// TODO: get sorted devices for a given window/HWND
 
-		result<std::unique_ptr<physical_device>> get_default_physical_device()
+		auto create_physical_device(std::shared_ptr<physical_device_info> dev_info)
 		{
-			vvv_LEAF_AUTO(physical_devices, discover_suitable_physical_devices());
-			return std::make_unique<vvv::physical_device>(std::move(physical_devices[0]));
+			return raw_VkPhysicalDevice::factory<vk_physical_device>(shared_from_this(), dev_info);
 		}
-
-#if defined(VK_KHR_win32_surface)
-		result<std::unique_ptr<surface>> create_surface(HWND hwnd, HINSTANCE hinst)
-		{
-			VkWin32SurfaceCreateInfoKHR createInfo{};
-			createInfo.sType	 = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-			createInfo.hwnd		 = hwnd;
-			createInfo.hinstance = hinst;
-
-			VkSurfaceKHR surf;
-			if (auto res = vkCreateWin32SurfaceKHR(*m_vulkan_instance, &createInfo, nullptr, &surf); res != VK_SUCCESS)
-			{
-				return vvv_err_not_specified(fmt::format("vkCreateWin32SurfaceKHR failed: {}", VkResult_string(res)));
-			}
-
-			return std::make_unique<surface>(surf);
-		}
-#endif
 	};
 
+	class vk
+		: public raw_Vk
+		, public std::enable_shared_from_this<vk>
+	{
+	public:
+		using raw_Vk::raw_Vk;
+		virtual ~vk() = default;
+
+		auto create_instance()
+		{
+			return raw_VkInstance::factory<vk_instance>(shared_from_this());
+		}
+
+		static inline auto factory(int argc, char** argv)
+		{
+			return raw_Vk::factory<vk>(argc, argv);
+		}
+	};
 } // namespace vvv

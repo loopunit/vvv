@@ -4,12 +4,10 @@
 
 int main(int argc, char** argv)
 {
-	vvv::init(argc, argv);
-
 	return vvv::leaf::try_handle_all(
 		[&]() -> vvv::leaf::result<int>
 		{
-			return wl::_wli::leaky_run_main<root_window>(::GetModuleHandleA(NULL), SW_SHOWDEFAULT);
+			return wl::_wli::leaky_run_main<root_window>(::GetModuleHandleA(NULL), SW_SHOWDEFAULT, argc, argv);
 		},
 		[](vvv::runtime_error::not_specified err)
 		{

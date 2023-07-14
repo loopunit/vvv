@@ -66,6 +66,22 @@ namespace vvv
 
 #define vvv_LEAF_AUTO(v, r) vvv_LEAF_ASSIGN(auto v, r)
 
+#define vvv_CLEAF_ASSIGN2(v, r, CLEANUP, VAR)                                                                                                                                      \
+	auto&& VAR = r;                                                                                                                                                                \
+	static_assert(                                                                                                                                                                 \
+		::boost::leaf::is_result_type<typename std::decay<decltype(VAR)>::type>::value,                                                                                            \
+		"vvv_LEAF_ASSIGN/vvv_LEAF_AUTO requires a result object as the second argument (see is_result_type)");                                                                     \
+	if (!VAR)                                                                                                                                                                      \
+	{                                                                                                                                                                              \
+		CLEANUP();                                                                                                                                                                 \
+		return VAR.error();                                                                                                                                                        \
+	}                                                                                                                                                                              \
+	v = std::forward<decltype(VAR)>(VAR).value()
+
+#define vvv_CLEAF_ASSIGN(v, r, CLEANUP) vvv_CLEAF_ASSIGN2(v, r, CLEANUP, vvv_LEAF_TMP)
+
+#define vvv_CLEAF_AUTO(v, r, CLEANUP) vvv_CLEAF_ASSIGN(auto v, r, CLEANUP)
+
 #if vvv_LEAF_CFG_GNUC_STMTEXPR
 
 #define vvv_LEAF_CHECK2(r, VAR)                                                                                                                                                    \
@@ -123,5 +139,5 @@ namespace vvv
 	}
 /**/
 
-#define vvv_err_not_specified(VALUE) vvv_NEW_ERROR(vvv::runtime_error::not_specified{VALUE});
+#define vvv_err_not_specified(VALUE)   vvv_NEW_ERROR(vvv::runtime_error::not_specified{VALUE});
 #define vvv_throw_not_specified(VALUE) vvv::leaf::throw_exception(vvv::runtime_error::not_specified{VALUE});

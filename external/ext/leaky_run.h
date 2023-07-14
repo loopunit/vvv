@@ -14,11 +14,11 @@
 namespace wl {
 namespace _wli {
 
-template<typename wnd_mainT>
-int leaky_run_main(HINSTANCE hInst, int cmdShow) noexcept {
+template<typename wnd_mainT, typename... T_ARGS>
+int leaky_run_main(HINSTANCE hInst, int cmdShow, T_ARGS... args) noexcept {
 	int ret = 0;
 	try { // any exception which was not caught, except those from within message lambdas
-		wnd_mainT wndMain;
+		wnd_mainT wndMain(args...);
 		ret = wndMain.winmain_run(hInst, cmdShow);
 	} catch (...) {
 		{

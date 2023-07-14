@@ -9,6 +9,10 @@
 class root_window : public wl::render_window_main
 {
 public:
+	std::shared_ptr<vvv::vk_instance>		 m_vk_instance;
+	std::shared_ptr<vvv::vk_physical_device> m_vk_physical_device;
+	std::shared_ptr<vvv::vk_device>			 m_vk_device;
+
 	INT64  m_last_time{0};
 	INT64  m_ticks_per_second{0};
 	HWND   m_mouse_hwnd{0};
@@ -541,35 +545,37 @@ public:
 			});
 	}
 
-	std::unique_ptr<vvv::instance>		  m_vulkan_instance;
-	std::unique_ptr<vvv::physical_device> m_physical_device;
-	vvv::physical_device::queue_families  m_queue_families;
+	// std::unique_ptr<vvv::physical_device> m_physical_device;
+	// vvv::physical_device::queue_families  m_queue_families;
 
-	vvv::result<void> vulkan_init()
+	vvv::result<void> vulkan_init(int argc, char** argv)
 	{
-		vvv_LEAF_CHECK(vvv::load_vulkan());
+		static std::shared_ptr<vvv::vk> s_vk;
 
-		// auto version = volkGetInstanceVersion();
-		// printf("Vulkan version %d.%d.%d initialized.\n", VK_VERSION_MAJOR(version), VK_VERSION_MINOR(version), VK_VERSION_PATCH(version));
+		if (!s_vk)
+		{
+			vvv_LEAF_ASSIGN(s_vk, vvv::vk::factory(argc, argv));
+		}
 
-		m_vulkan_instance = std::make_unique<vvv::instance>();
+		vvv_LEAF_ASSIGN(m_vk_instance, s_vk->create_instance());
+		vvv_LEAF_AUTO(physical_devices, m_vk_instance->discover_suitable_physical_devices());
+		vvv_LEAF_ASSIGN(m_vk_physical_device, m_vk_instance->create_physical_device(std::move(physical_devices[0])));
+		vvv_LEAF_ASSIGN(m_vk_device, m_vk_physical_device->create_device());
 
-		vvv_LEAF_ASSIGN(m_physical_device, m_vulkan_instance->get_default_physical_device());
-		vvv_LEAF_ASSIGN(m_queue_families, m_physical_device->get_queue_families());
+		// vvv_LEAF_ASSIGN(m_physical_device, m_vulkan_instance->get_default_physical_device());
+		// vvv_LEAF_ASSIGN(m_queue_families, m_physical_device->get_queue_families());
 
 		return {};
 	}
 
 	vvv::result<void> vulkan_destroy()
 	{
-		m_physical_device.reset();
-		m_vulkan_instance.reset();
 		return {};
 	}
 
-	root_window()
+	root_window(int argc, char** argv)
 	{
-		if (auto res = vulkan_init(); !res)
+		if (auto res = vulkan_init(argc, argv); !res)
 		{
 			vvv::leaf::throw_exception(res.get_error_id());
 		}

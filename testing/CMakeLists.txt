@@ -28,6 +28,8 @@ include("${vvv_ROOT_DIR}/external/libcuckoo.cmake")
 include("${vvv_ROOT_DIR}/external/taskflow.cmake")
 include("${vvv_ROOT_DIR}/external/Polypropylene.cmake")
 include("${vvv_ROOT_DIR}/external/volk.cmake")
+include("${vvv_ROOT_DIR}/external/Vulkan-Headers.cmake")
+include("${vvv_ROOT_DIR}/external/VulkanMemoryAllocator.cmake")
 
 add_subdirectory("${vvv_ROOT_DIR}/" "${CMAKE_CURRENT_BINARY_DIR}/vvv")
 
