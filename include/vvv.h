@@ -147,21 +147,21 @@ namespace vvv
 		size_t						   video_encode_family{invalid_family};
 	};
 
+	enum class queue_family_type : uint32_t
+	{
+		GFX = 0,
+		TRANSFER,
+		COMPUTE,
+		VIDEO_DECODE,
+		VIDEO_ENCODE,
+		COUNT
+	};
+
 	struct queue_family_desc
 	{
-		enum class type : uint32_t
-		{
-			GFX = 0,
-			TRANSFER,
-			COMPUTE,
-			VIDEO_DECODE,
-			VIDEO_ENCODE,
-			COUNT
-		};
-
 		size_t					m_family_index{exclusive_queue_families::invalid_family};
 		VkQueueFamilyProperties m_properties{};
-		type					m_type{type::COUNT};
+		queue_family_type		m_type{queue_family_type::COUNT};
 
 		bool m_gfx{false};
 		bool m_compute{false};
@@ -170,12 +170,11 @@ namespace vvv
 		bool m_protected{false};
 		bool m_video_decode{false};
 		bool m_video_encode{false};
-
 		bool m_supports_present{false};
 
 		queue_family_desc() = default;
 
-		queue_family_desc(size_t idx, const VkQueueFamilyProperties& props, type t, VkPhysicalDevice phys_dev) : m_family_index{idx}, m_properties{props}, m_type{t}
+		queue_family_desc(size_t idx, const VkQueueFamilyProperties& props, queue_family_type t, VkPhysicalDevice phys_dev) : m_family_index{idx}, m_properties{props}, m_type{t}
 		{
 			m_gfx			 = (props.queueFlags & VK_QUEUE_GRAPHICS_BIT);
 			m_compute		 = (props.queueFlags & VK_QUEUE_COMPUTE_BIT);
@@ -192,7 +191,7 @@ namespace vvv
 
 		operator bool() const
 		{
-			return m_type != type::COUNT;
+			return m_type != queue_family_type::COUNT;
 		}
 	};
 
@@ -243,6 +242,220 @@ namespace vvv
 		}
 	};
 
+	class raw_VkApplicationInfo
+	{
+	protected:
+		VkApplicationInfo m_value{};
+
+		std::string m_application_name;
+		std::string m_engine_name;
+
+	public:
+		raw_VkApplicationInfo()
+		{
+			m_value.sType	   = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+			m_value.apiVersion = VK_API_VERSION_1_3;
+		}
+
+		virtual ~raw_VkApplicationInfo() { }
+
+		auto& with_defaults()
+		{
+			m_value.pApplicationName   = "Loopunit";
+			m_value.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
+			m_value.pEngineName		   = "vvv";
+			m_value.engineVersion	   = VK_MAKE_VERSION(0, 0, 1);
+			return *this;
+		}
+
+		auto& with_application_name(std::string&& name)
+		{
+			m_application_name		 = std::move(name);
+			m_value.pApplicationName = m_application_name.c_str();
+			return *this;
+		}
+
+		auto& with_application_name(const char* name)
+		{
+			m_application_name		 = name;
+			m_value.pApplicationName = m_application_name.c_str();
+			return *this;
+		}
+
+		auto& with_application_version(uint32_t applicationVersion)
+		{
+			m_value.applicationVersion = applicationVersion;
+			return *this;
+		}
+
+		auto& with_engine_name(std::string&& name)
+		{
+			m_engine_name		= std::move(name);
+			m_value.pEngineName = m_engine_name.c_str();
+			return *this;
+		}
+
+		auto& with_engine_name(const char* name)
+		{
+			m_engine_name		= name;
+			m_value.pEngineName = m_engine_name.c_str();
+			return *this;
+		}
+
+		auto& with_engine_version(uint32_t engineVersion)
+		{
+			m_value.engineVersion = engineVersion;
+			return *this;
+		}
+
+		auto& with_api_version(uint32_t apiVersion)
+		{
+			m_value.apiVersion = apiVersion;
+			return *this;
+		}
+
+		auto* data()
+		{
+			return &m_value;
+		}
+	};
+
+	class raw_VkInstanceCreateInfo
+	{
+	protected:
+		VkInstanceCreateInfo m_value{};
+
+		std::shared_ptr<raw_VkApplicationInfo> m_application_info;
+		std::vector<const char*>			   m_enabled_layers;
+		std::vector<const char*>			   m_enabled_extensions;
+
+	public:
+		raw_VkInstanceCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkInstanceCreateInfo() { }
+
+		auto& with_flags(VkInstanceCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_application_info(std::shared_ptr<raw_VkApplicationInfo> ai)
+		{
+			m_application_info		 = ai;
+			m_value.pApplicationInfo = m_application_info->data();
+			return *this;
+		}
+
+		auto& with_layers(std::vector<const char*>&& enabled_layers)
+		{
+			m_enabled_layers			= std::move(enabled_layers);
+			m_value.enabledLayerCount	= static_cast<uint32_t>(m_enabled_layers.size());
+			m_value.ppEnabledLayerNames = m_enabled_layers.data();
+			return *this;
+		}
+
+		auto& with_default_layers()
+		{
+			uint32_t availiable_layer_count = 0;
+			vkEnumerateInstanceLayerProperties(&availiable_layer_count, nullptr);
+			std::vector<VkLayerProperties> available_layers(availiable_layer_count);
+			vkEnumerateInstanceLayerProperties(&availiable_layer_count, available_layers.data());
+
+			std::vector<const char*> enabled_layers;
+			const char*				 desired_layers[] = {
+				 "VK_LAYER_KHRONOS_validation",
+				 "VK_LAYER_NV_optimus",
+			 };
+
+			for (auto ext_str : desired_layers)
+			{
+				for (auto& ext : available_layers)
+				{
+					if (::stricmp(ext.layerName, ext_str) == 0)
+					{
+						enabled_layers.push_back(ext_str);
+						break;
+					}
+				}
+			}
+
+			return with_layers(std::move(enabled_layers));
+		}
+
+		auto& with_extensions(std::vector<const char*>&& enabled_extensions)
+		{
+			m_enabled_extensions			= std::move(enabled_extensions);
+			m_value.enabledExtensionCount	= static_cast<uint32_t>(m_enabled_extensions.size());
+			m_value.ppEnabledExtensionNames = m_enabled_extensions.data();
+			return *this;
+		}
+
+		auto& with_default_extensions()
+		{
+			uint32_t availiable_extension_count = 0;
+			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, nullptr);
+			std::vector<VkExtensionProperties> available_extensions(availiable_extension_count);
+			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, available_extensions.data());
+
+			const char* desired_extensions[] = {
+				VK_KHR_SURFACE_EXTENSION_NAME,
+				VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME,
+				VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
+				VK_KHR_DISPLAY_EXTENSION_NAME,
+				VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+				VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+				VK_EXT_DIRECT_MODE_DISPLAY_EXTENSION_NAME,
+#if defined(VK_USE_PLATFORM_ANDROID_KHR)
+				VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
+#elif defined(VK_USE_PLATFORM_WIN32_KHR)
+				VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+				VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+				VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME,
+			// VK_NV_ACQUIRE_WINRT_DISPLAY_EXTENSION_NAME,
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+				VK_EXT_METAL_SURFACE_EXTENSION_NAME,
+#elif defined(VK_USE_PLATFORM_XCB_KHR)
+				VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+#elif defined(VK_USE_PLATFORM_XLIB_KHR)
+				VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
+#elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+				VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+#elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
+				VK_KHR_DISPLAY_EXTENSION_NAME,
+#else
+#pragma error Platform not supported
+#endif
+			};
+
+			std::vector<const char*> enabled_extensions;
+
+			for (auto ext_str : desired_extensions)
+			{
+				for (auto& ext : available_extensions)
+				{
+					if (::stricmp(ext.extensionName, ext_str) == 0)
+					{
+						enabled_extensions.push_back(ext_str);
+						break;
+					}
+				}
+			}
+
+			return with_extensions(std::move(enabled_extensions));
+		}
+
+		auto* data()
+		{
+			return &m_value;
+		}
+	};
+
 	class raw_VkInstance
 	{
 	protected:
@@ -277,98 +490,14 @@ namespace vvv
 		}
 
 		template<typename T_IMPL>
-		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_Vk> vk)
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_Vk> vk, std::shared_ptr<raw_VkInstanceCreateInfo> ci)
 		{
-			VkApplicationInfo application_info =
-				{VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "Loopunit", VK_MAKE_VERSION(0, 0, 1), "vvv", VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_3};
-
-			VkInstanceCreateInfo instance_create_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, nullptr, 0, &application_info, 0, nullptr, 0, nullptr};
-
-			// Extensions
-
-			uint32_t availiable_extension_count = 0;
-			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, nullptr);
-			std::vector<VkExtensionProperties> available_extensions(availiable_extension_count);
-			vkEnumerateInstanceExtensionProperties(nullptr, &availiable_extension_count, available_extensions.data());
-
-			const char* desired_extensions[] = {
-				VK_KHR_SURFACE_EXTENSION_NAME,
-				VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME,
-				VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
-				VK_KHR_DISPLAY_EXTENSION_NAME,
-				VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-				VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
-				VK_EXT_DIRECT_MODE_DISPLAY_EXTENSION_NAME,
-
-#if defined(_WIN32)
-				VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-				VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
-				VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
-				VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
-				VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME,
-			// VK_NV_ACQUIRE_WINRT_DISPLAY_EXTENSION_NAME,
-#else
-				VK_KHR_XCB_SURFACE_EXTENSION_NAME,
-#endif
-			};
-
-			std::vector<const char*> enabled_extensions;
-
-			for (auto ext_str : desired_extensions)
-			{
-				for (auto& ext : available_extensions)
-				{
-					if (::stricmp(ext.extensionName, ext_str) == 0)
-					{
-						enabled_extensions.push_back(ext_str);
-						break;
-					}
-				}
-			}
-
-			if (enabled_extensions.size() > 0)
-			{
-				instance_create_info.enabledExtensionCount	 = static_cast<uint32_t>(enabled_extensions.size());
-				instance_create_info.ppEnabledExtensionNames = enabled_extensions.data();
-			}
-
-			// Layers
-
-			uint32_t availiable_layer_count = 0;
-			vkEnumerateInstanceLayerProperties(&availiable_layer_count, nullptr);
-			std::vector<VkLayerProperties> available_layers(availiable_layer_count);
-			vkEnumerateInstanceLayerProperties(&availiable_layer_count, available_layers.data());
-
-			std::vector<const char*> enabled_layers;
-			const char*				 desired_layers[] = {
-				 "VK_LAYER_KHRONOS_validation",
-				 "VK_LAYER_NV_optimus",
-			 };
-
-			for (auto ext_str : desired_layers)
-			{
-				for (auto& ext : available_layers)
-				{
-					if (::stricmp(ext.layerName, ext_str) == 0)
-					{
-						enabled_layers.push_back(ext_str);
-						break;
-					}
-				}
-			}
-
-			if (enabled_layers.size() > 0)
-			{
-				instance_create_info.enabledLayerCount	 = static_cast<uint32_t>(enabled_layers.size());
-				instance_create_info.ppEnabledLayerNames = enabled_layers.data();
-			}
-
 			vvv_LEAF_AUTO(
 				new_instance,
 				[&]() -> result<VkInstance>
 				{
 					VkInstance new_instance{nullptr};
-					if (auto res = vkCreateInstance(&instance_create_info, vk->allocation_callbacks(), &new_instance); res != VK_SUCCESS)
+					if (auto res = vkCreateInstance(ci->data(), vk->allocation_callbacks(), &new_instance); res != VK_SUCCESS)
 					{
 						return vvv_err_not_specified(fmt::format("vkCreateInstance failed with: {}", VkResult_string(res)));
 					}
@@ -424,7 +553,7 @@ namespace vvv
 	class raw_VkPhysicalDevice
 	{
 	public:
-		using queue_families = std::array<queue_family_desc, enum_value(queue_family_desc::type::COUNT)>;
+		using queue_families = std::array<queue_family_desc, enum_value(queue_family_type::COUNT)>;
 
 	protected:
 		std::shared_ptr<raw_VkInstance>		  m_instance;
@@ -501,11 +630,11 @@ namespace vvv
 				}
 			};
 
-			assign_queue_family(exclusive_families.gfx_family, queue_family_desc::type::GFX);
-			assign_queue_family(exclusive_families.transfer_family, queue_family_desc::type::TRANSFER);
-			assign_queue_family(exclusive_families.compute_family, queue_family_desc::type::COMPUTE);
-			assign_queue_family(exclusive_families.video_decode_family, queue_family_desc::type::VIDEO_DECODE);
-			assign_queue_family(exclusive_families.video_encode_family, queue_family_desc::type::VIDEO_ENCODE);
+			assign_queue_family(exclusive_families.gfx_family, queue_family_type::GFX);
+			assign_queue_family(exclusive_families.transfer_family, queue_family_type::TRANSFER);
+			assign_queue_family(exclusive_families.compute_family, queue_family_type::COMPUTE);
+			assign_queue_family(exclusive_families.video_decode_family, queue_family_type::VIDEO_DECODE);
+			assign_queue_family(exclusive_families.video_encode_family, queue_family_type::VIDEO_ENCODE);
 
 			return res;
 		}
@@ -547,6 +676,11 @@ namespace vvv
 			return *m_info;
 		}
 
+		auto get_physical_device() const
+		{
+			return m_info->m_physical_device;
+		}
+
 		template<typename T_IMPL>
 		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_VkInstance> instance, std::shared_ptr<physical_device_info> info)
 		{
@@ -562,12 +696,21 @@ namespace vvv
 		VmaAllocator						  m_allocator;
 		VolkDeviceTable						  m_volk_device_table;
 
+		using family_queues = std::array<VkQueue, enum_value(queue_family_type::COUNT)>;
+		family_queues m_family_queues{};
+
 	public:
-		raw_VkDevice(std::shared_ptr<raw_VkPhysicalDevice> phys_dev, VkDevice device, VmaAllocator allocator, VolkDeviceTable volk_device_table)
+		const VolkDeviceTable& device_table() const
+		{
+			return m_volk_device_table;
+		}
+
+		raw_VkDevice(std::shared_ptr<raw_VkPhysicalDevice> phys_dev, VkDevice device, VmaAllocator allocator, VolkDeviceTable volk_device_table, family_queues device_family_queues)
 			: m_physical_device{phys_dev}
 			, m_device{device}
 			, m_allocator{allocator}
 			, m_volk_device_table{volk_device_table}
+			, m_family_queues{device_family_queues}
 		{ }
 
 		virtual ~raw_VkDevice()
@@ -576,6 +719,16 @@ namespace vvv
 			{
 				m_volk_device_table.vkDestroyDevice(m_device, m_physical_device->allocation_callbacks());
 			}
+		}
+
+		auto allocation_callbacks() const
+		{
+			return m_physical_device->allocation_callbacks();
+		}
+
+		auto get_device() const
+		{
+			return m_device;
 		}
 
 		template<typename T_IMPL>
@@ -592,7 +745,7 @@ namespace vvv
 			{
 				if (queue_families[i].m_family_index != exclusive_queue_families::invalid_family)
 				{
-					queue_families_ci_prio.push_back(1.0f);
+					queue_families_ci_prio.push_back(1.0f); // TODO: determine priorities
 
 					queue_families_ci.push_back(
 						{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = static_cast<uint32_t>(queue_families[i].m_family_index), .queueCount = 1});
@@ -828,13 +981,917 @@ namespace vvv
 				return vvv_err_not_specified(fmt::format("vmaCreateAllocatorfailed with: {}", VkResult_string(res)));
 			}
 
-			return std::make_unique<T_IMPL>(phys_dev, device, allocator, vdt);
+			std::array<VkQueue, enum_value(queue_family_type::COUNT)> device_family_queues{};
+
+			auto get_family_queue = [&](queue_family_type q_type) -> result<void>
+			{
+				auto& queue_famlies_desc = phys_dev->get_queue_families();
+				auto  family_index		 = queue_famlies_desc[enum_value(q_type)].m_family_index;
+				if (family_index != exclusive_queue_families::invalid_family)
+				{
+					vdt.vkGetDeviceQueue(device, family_index, 0, &device_family_queues[enum_value(q_type)]);
+					if (!device_family_queues[enum_value(q_type)])
+					{
+						return vvv_err_not_specified(fmt::format("vkGetDeviceQueue failed for family index: {}", family_index));
+					}
+					return {};
+				}
+				return vvv_err_not_specified(fmt::format("vkGetDeviceQueue was not valid for family index: {}", family_index));
+			};
+
+			vvv_CHECK(get_family_queue(queue_family_type::GFX));
+			vvv_CHECK(get_family_queue(queue_family_type::COMPUTE));
+			vvv_CHECK(get_family_queue(queue_family_type::TRANSFER));
+			vvv_CHECK(get_family_queue(queue_family_type::VIDEO_DECODE));
+
+			return std::make_unique<T_IMPL>(phys_dev, device, allocator, vdt, device_family_queues);
+		}
+	};
+
+	struct surface_capabilities
+	{
+		VkSurfaceCapabilitiesKHR		m_capabilities;
+		std::vector<VkSurfaceFormatKHR> m_formats;
+		std::vector<VkPresentModeKHR>	m_present_modes;
+	};
+
+	class raw_VkSurface
+	{
+	protected:
+		std::shared_ptr<raw_VkInstance> m_instance;
+		VkSurfaceKHR					m_surface{nullptr};
+
+	public:
+		raw_VkSurface(std::shared_ptr<raw_VkInstance> instance, VkSurfaceKHR surface) : m_instance{instance}, m_surface{surface} { }
+
+		virtual ~raw_VkSurface()
+		{
+			if (m_instance)
+			{
+				vkDestroySurfaceKHR(m_instance->get_instance(), m_surface, m_instance->allocation_callbacks());
+			}
+		}
+
+		auto get_surface() const
+		{
+			return m_surface;
+		}
+
+		result<surface_capabilities> get_surface_capabilities(raw_VkPhysicalDevice& physical_dev)
+		{
+			surface_capabilities cap;
+			if (auto res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_dev.get_physical_device(), m_surface, &cap.m_capabilities); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to get surface caps: {}", VkResult_string(res)));
+			}
+
+			uint32_t format_count{0};
+			if (auto res = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_dev.get_physical_device(), m_surface, &format_count, nullptr); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to get surface formats: {}", VkResult_string(res)));
+			}
+
+			cap.m_formats.resize(format_count);
+			if (auto res = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_dev.get_physical_device(), m_surface, &format_count, cap.m_formats.data()); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to get surface formats: {}", VkResult_string(res)));
+			}
+
+			uint32_t present_mode_count{0};
+			if (auto res = vkGetPhysicalDeviceSurfacePresentModesKHR(physical_dev.get_physical_device(), m_surface, &present_mode_count, nullptr); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to get surface present modes: {}", VkResult_string(res)));
+			}
+
+			cap.m_present_modes.resize(present_mode_count);
+			if (auto res = vkGetPhysicalDeviceSurfacePresentModesKHR(physical_dev.get_physical_device(), m_surface, &present_mode_count, cap.m_present_modes.data());
+				res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to get surface present modes: {}", VkResult_string(res)));
+			}
+
+			return cap;
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_VkInstance> instance, HWND hwnd)
+		{
+			VkWin32SurfaceCreateInfoKHR create_info{};
+			create_info.sType	  = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+			create_info.hwnd	  = hwnd;
+			create_info.hinstance = ::GetModuleHandleA(nullptr);
+
+			VkSurfaceKHR surface{nullptr};
+			if (auto res = vkCreateWin32SurfaceKHR(instance->get_instance(), &create_info, instance->allocation_callbacks(), &surface); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to create surface: {}", VkResult_string(res)));
+			}
+
+			return std::make_unique<T_IMPL>(instance, surface);
+		}
+	};
+
+	class raw_VkSwapchain
+	{
+	protected:
+		std::shared_ptr<raw_VkDevice>  m_device;
+		std::shared_ptr<raw_VkSurface> m_surface;
+		VkSwapchainKHR				   m_swapchain{nullptr};
+		VkSwapchainCreateInfoKHR	   m_create_info;
+		std::vector<VkImage>		   m_swapchain_images;
+		std::vector<VkImageView>	   m_swapchain_image_views;
+
+	public:
+		raw_VkSwapchain(std::shared_ptr<raw_VkDevice> device, std::shared_ptr<raw_VkSurface> surface, VkSwapchainKHR swapchain, VkSwapchainCreateInfoKHR create_info)
+			: m_device{device}
+			, m_surface{surface}
+			, m_swapchain{swapchain}
+			, m_create_info{create_info}
+		{
+			create_info.oldSwapchain = VK_NULL_HANDLE;
+
+			uint32_t image_count{0};
+			if (auto res = m_device->device_table().vkGetSwapchainImagesKHR(m_device->get_device(), m_swapchain, &image_count, nullptr); res != VK_SUCCESS)
+			{
+				vvv_throw_not_specified(fmt::format("Unable get swapchain images {}", VkResult_string(res)));
+			}
+
+			m_swapchain_images.resize(image_count);
+
+			if (auto res = m_device->device_table().vkGetSwapchainImagesKHR(m_device->get_device(), m_swapchain, &image_count, m_swapchain_images.data()); res != VK_SUCCESS)
+			{
+				vvv_throw_not_specified(fmt::format("Unable get swapchain images {}", VkResult_string(res)));
+			}
+
+			m_swapchain_image_views.resize(image_count);
+
+			for (auto i = 0u; i < image_count; ++i)
+			{
+				VkImageViewCreateInfo create_info{};
+				create_info.sType							= VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+				create_info.image							= m_swapchain_images[i];
+				create_info.viewType						= VK_IMAGE_VIEW_TYPE_2D;
+				create_info.format							= m_create_info.imageFormat;
+				create_info.components.r					= VK_COMPONENT_SWIZZLE_IDENTITY;
+				create_info.components.g					= VK_COMPONENT_SWIZZLE_IDENTITY;
+				create_info.components.b					= VK_COMPONENT_SWIZZLE_IDENTITY;
+				create_info.components.a					= VK_COMPONENT_SWIZZLE_IDENTITY;
+				create_info.subresourceRange.aspectMask		= VK_IMAGE_ASPECT_COLOR_BIT;
+				create_info.subresourceRange.baseMipLevel	= 0;
+				create_info.subresourceRange.levelCount		= 1;
+				create_info.subresourceRange.baseArrayLayer = 0;
+				create_info.subresourceRange.layerCount		= 1;
+
+				if (auto res = m_device->device_table().vkCreateImageView(m_device->get_device(), &create_info, m_device->allocation_callbacks(), &m_swapchain_image_views[i]);
+					res != VK_SUCCESS)
+				{
+					vvv_throw_not_specified(fmt::format("Unable create swapchain view ({}) {}", i, VkResult_string(res)));
+				}
+			}
+		}
+
+		virtual ~raw_VkSwapchain()
+		{
+			for (auto& img_view : m_swapchain_image_views)
+			{
+				if (img_view)
+				{
+					m_device->device_table().vkDestroyImageView(m_device->get_device(), img_view, m_device->allocation_callbacks());
+				}
+			}
+
+			if (m_swapchain)
+			{
+				m_device->device_table().vkDestroySwapchainKHR(m_device->get_device(), m_swapchain, m_device->allocation_callbacks());
+			}
+		}
+
+		auto get_surface_format() const
+		{
+			return m_create_info.imageFormat;
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(
+			std::shared_ptr<raw_VkDevice>  device,
+			std::shared_ptr<raw_VkSurface> surface,
+			VkExtent2D					   swapchain_size,
+			uint32_t					   image_count,
+			VkFormat					   surface_format,
+			VkColorSpaceKHR				   color_space,
+			VkSurfaceTransformFlagBitsKHR  transform,
+			VkPresentModeKHR			   present_mode,
+			VkCompositeAlphaFlagBitsKHR	   composite)
+		{
+			VkSwapchainCreateInfoKHR create_info{};
+			create_info.sType				  = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+			create_info.surface				  = surface->get_surface();
+			create_info.minImageCount		  = image_count;
+			create_info.imageFormat			  = surface_format;
+			create_info.imageColorSpace		  = color_space;
+			create_info.imageExtent			  = swapchain_size;
+			create_info.imageArrayLayers	  = 1;
+			create_info.imageUsage			  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+			create_info.imageSharingMode	  = VK_SHARING_MODE_EXCLUSIVE;
+			create_info.queueFamilyIndexCount = 0;
+			create_info.pQueueFamilyIndices	  = nullptr;
+			create_info.preTransform		  = transform;
+			create_info.compositeAlpha		  = composite;
+			create_info.presentMode			  = present_mode;
+			create_info.clipped				  = VK_TRUE;
+			create_info.oldSwapchain		  = VK_NULL_HANDLE;
+
+			VkSwapchainKHR swapchain{nullptr};
+			if (auto res = device->device_table().vkCreateSwapchainKHR(device->get_device(), &create_info, nullptr, &swapchain); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to create swapchain: {}", VkResult_string(res)));
+			}
+
+			return std::make_unique<T_IMPL>(device, surface, swapchain, create_info);
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_VkSwapchain> previous, VkExtent2D swapchain_size)
+		{
+			VkSwapchainCreateInfoKHR create_info{previous->m_create_info};
+			create_info.imageExtent	 = swapchain_size;
+			create_info.oldSwapchain = previous->m_swapchain;
+
+			VkSwapchainKHR swapchain{nullptr};
+			if (auto res = previous->m_device->device_table().vkCreateSwapchainKHR(previous->m_device->get_device(), &create_info, nullptr, &swapchain); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Unable to create swapchain: {}", VkResult_string(res)));
+			}
+
+			return std::make_unique<T_IMPL>(previous->m_device, previous->m_surface, swapchain, create_info);
+		}
+	};
+
+	//
+
+	class raw_VkPipelineShaderStageCreateInfo
+	{
+	protected:
+		VkPipelineShaderStageCreateInfo m_value{};
+		std::string						m_name;
+
+	public:
+		raw_VkPipelineShaderStageCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineShaderStageCreateInfo() { }
+
+		auto& with_stage(VkPipelineShaderStageCreateFlags flags, VkShaderStageFlagBits stage)
+		{
+			m_value.flags = flags;
+			m_value.stage = stage;
+			return *this;
+		}
+
+		auto& with_module(VkShaderModule module)
+		{
+			m_value.module = module;
+			return *this;
+		}
+
+		auto& with_name(std::string&& name)
+		{
+			m_name		  = std::move(name);
+			m_value.pName = m_name.c_str();
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineVertexInputStateCreateInfo
+	{
+	protected:
+		VkPipelineVertexInputStateCreateInfo		   m_value{};
+		std::vector<VkVertexInputBindingDescription>   m_vertex_binding_descriptions;
+		std::vector<VkVertexInputAttributeDescription> m_vertex_attribute_descriptions;
+
+	public:
+		raw_VkPipelineVertexInputStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineVertexInputStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineVertexInputStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_binding_descriptions(std::vector<VkVertexInputBindingDescription>&& vertex_descriptions)
+		{
+			m_vertex_binding_descriptions		  = std::move(vertex_descriptions);
+			m_value.vertexBindingDescriptionCount = static_cast<uint32_t>(m_vertex_binding_descriptions.size());
+			m_value.pVertexBindingDescriptions	  = m_vertex_binding_descriptions.data();
+			return *this;
+		}
+
+		auto& with_attribute_descriptions(std::vector<VkVertexInputAttributeDescription>&& vertex_descriptions)
+		{
+			m_vertex_attribute_descriptions			= std::move(vertex_descriptions);
+			m_value.vertexAttributeDescriptionCount = static_cast<uint32_t>(m_vertex_attribute_descriptions.size());
+			m_value.pVertexAttributeDescriptions	= m_vertex_attribute_descriptions.data();
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineInputAssemblyStateCreateInfo
+	{
+	protected:
+		VkPipelineInputAssemblyStateCreateInfo m_value{};
+
+	public:
+		raw_VkPipelineInputAssemblyStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineInputAssemblyStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineInputAssemblyStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_topology(VkPrimitiveTopology topology)
+		{
+			m_value.topology = topology;
+			return *this;
+		}
+
+		auto& with_primitive_restart_enable(VkBool32 primitiveRestartEnable)
+		{
+			m_value.primitiveRestartEnable = primitiveRestartEnable;
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineTessellationStateCreateInfo
+	{
+	protected:
+		VkPipelineTessellationStateCreateInfo m_value{};
+
+	public:
+		raw_VkPipelineTessellationStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineTessellationStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineTessellationStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_patch_control_points(uint32_t patchControlPoints)
+		{
+			m_value.patchControlPoints = patchControlPoints;
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineViewportStateCreateInfo
+	{
+	protected:
+		VkPipelineViewportStateCreateInfo m_value{};
+
+		VkViewport m_viewport{};
+		VkRect2D   m_scissor{};
+
+		std::vector<VkViewport> m_viewports;
+		std::vector<VkRect2D>	m_scissors;
+
+	public:
+		raw_VkPipelineViewportStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineViewportStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineViewportStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_viewport(VkViewport viewport)
+		{
+			m_viewport			  = viewport;
+			m_value.viewportCount = 1;
+			m_value.pViewports	  = &m_viewport;
+			return *this;
+		}
+
+		auto& with_viewports(std::vector<VkViewport>&& viewports)
+		{
+			m_viewports			  = std::move(viewports);
+			m_value.viewportCount = static_cast<uint32_t>(m_viewports.size());
+			m_value.pViewports	  = m_viewports.data();
+			return *this;
+		}
+
+		auto& with_scissor(VkRect2D scissor)
+		{
+			m_scissor			 = scissor;
+			m_value.scissorCount = 1;
+			m_value.pScissors	 = &m_scissor;
+			return *this;
+		}
+
+		auto& with_scissors(std::vector<VkRect2D>&& scissors)
+		{
+			m_scissors			 = std::move(scissors);
+			m_value.scissorCount = static_cast<uint32_t>(m_scissors.size());
+			m_value.pScissors	 = m_scissors.data();
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineRasterizationStateCreateInfo
+	{
+	protected:
+		VkPipelineRasterizationStateCreateInfo m_value{};
+
+	public:
+		raw_VkPipelineRasterizationStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineRasterizationStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineRasterizationStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_depth_clamp_enable(VkBool32 depthClampEnable)
+		{
+			m_value.depthClampEnable = depthClampEnable;
+			return *this;
+		}
+
+		auto& with_rasterizer_discard_enable(VkBool32 rasterizerDiscardEnable)
+		{
+			m_value.rasterizerDiscardEnable = rasterizerDiscardEnable;
+			return *this;
+		}
+
+		auto& with_polygon_mode(VkPolygonMode polygonMode)
+		{
+			m_value.polygonMode = polygonMode;
+			return *this;
+		}
+
+		auto& with_cull_mode(VkCullModeFlags cullMode)
+		{
+			m_value.cullMode = cullMode;
+			return *this;
+		}
+
+		auto& with_front_face(VkFrontFace frontFace)
+		{
+			m_value.frontFace = frontFace;
+			return *this;
+		}
+
+		auto& with_depth_bias(VkBool32 depthBiasEnable, float depthBiasConstantFactor, float depthBiasClamp, float depthBiasSlopeFactor)
+		{
+			m_value.depthBiasEnable			= depthBiasEnable;
+			m_value.depthBiasConstantFactor = depthBiasConstantFactor;
+			m_value.depthBiasClamp			= depthBiasClamp;
+			m_value.depthBiasSlopeFactor	= depthBiasSlopeFactor;
+			return *this;
+		}
+
+		auto& with_line_width(float lineWidth)
+		{
+			m_value.lineWidth = lineWidth;
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineMultisampleStateCreateInfo
+	{
+	protected:
+		VkPipelineMultisampleStateCreateInfo m_value{};
+
+	public:
+		raw_VkPipelineMultisampleStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineMultisampleStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineMultisampleStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_rasterization_samples(VkSampleCountFlagBits rasterizationSamples)
+		{
+			m_value.rasterizationSamples = rasterizationSamples;
+			return *this;
+		}
+
+		auto& with_sample_shading(VkBool32 sampleShadingEnable, float minSampleShading)
+		{
+			m_value.sampleShadingEnable = sampleShadingEnable;
+			m_value.minSampleShading	= minSampleShading;
+			return *this;
+		}
+
+		auto& with_sample_mask(const VkSampleMask* pSampleMask)
+		{
+			m_value.pSampleMask = pSampleMask;
+			return *this;
+		}
+
+		auto& with_alpha_coverage_enable(VkBool32 alphaToCoverageEnable)
+		{
+			m_value.alphaToCoverageEnable = alphaToCoverageEnable;
+			return *this;
+		}
+
+		auto& with_alpha_to_one_enable(VkBool32 alphaToOneEnable)
+		{
+			m_value.alphaToOneEnable = alphaToOneEnable;
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineDepthStencilStateCreateInfo
+	{
+	protected:
+		VkPipelineDepthStencilStateCreateInfo m_value;
+
+	public:
+		raw_VkPipelineDepthStencilStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineDepthStencilStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineDepthStencilStateCreateFlags flags)
+		{
+			return *this;
+		}
+
+		auto&
+		with_depth(VkBool32 depthTestEnable, VkBool32 depthWriteEnable, VkCompareOp depthCompareOp, VkBool32 depthBoundsTestEnable, float minDepthBounds, float maxDepthBounds)
+		{
+			m_value.depthTestEnable		  = depthTestEnable;
+			m_value.depthWriteEnable	  = depthWriteEnable;
+			m_value.depthCompareOp		  = depthCompareOp;
+			m_value.depthBoundsTestEnable = depthBoundsTestEnable;
+			m_value.minDepthBounds		  = minDepthBounds;
+			m_value.maxDepthBounds		  = maxDepthBounds;
+
+			return *this;
+		}
+
+		auto& with_stencil(VkBool32 stencilTestEnable, VkStencilOpState front, VkStencilOpState back)
+		{
+			m_value.stencilTestEnable = stencilTestEnable;
+			m_value.front			  = front;
+			m_value.back			  = back;
+
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineColorBlendStateCreateInfo
+	{
+	protected:
+		VkPipelineColorBlendStateCreateInfo m_value{};
+
+		VkPipelineColorBlendAttachmentState				 m_attachment_state{};
+		std::vector<VkPipelineColorBlendAttachmentState> m_attachment_states;
+
+	public:
+		raw_VkPipelineColorBlendStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineColorBlendStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineColorBlendStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_logic_op(VkBool32 logicOpEnable, VkLogicOp logicOp)
+		{
+			m_value.logicOpEnable = logicOpEnable;
+			m_value.logicOp		  = logicOp;
+			return *this;
+		}
+
+		auto& with_attachment(VkPipelineColorBlendAttachmentState attachment)
+		{
+			m_attachment_state		= attachment;
+			m_value.attachmentCount = 1;
+			m_value.pAttachments	= &m_attachment_state;
+			return *this;
+		}
+
+		auto& with_attachments(std::vector<VkPipelineColorBlendAttachmentState>&& attachments)
+		{
+			m_attachment_states		= std::move(attachments);
+			m_value.attachmentCount = static_cast<uint32_t>(m_attachment_states.size());
+			m_value.pAttachments	= m_attachment_states.data();
+			return *this;
+		}
+
+		auto& with_blend_constants(float blendConstants[4])
+		{
+			for (int i = 0; i < sizeof(blendConstants) / sizeof(blendConstants[0]); ++i)
+			{
+				m_value.blendConstants[i] = blendConstants[i];
+			}
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineDynamicStateCreateInfo
+	{
+	protected:
+		VkPipelineDynamicStateCreateInfo m_value{};
+
+		VkDynamicState				m_dynamic_state;
+		std::vector<VkDynamicState> m_dynamic_states;
+
+	public:
+		raw_VkPipelineDynamicStateCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineDynamicStateCreateInfo() { }
+
+		auto& with_flags(VkPipelineDynamicStateCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_dynamic_state(VkDynamicState ds)
+		{
+			m_dynamic_state			  = ds;
+			m_value.dynamicStateCount = 1;
+			m_value.pDynamicStates	  = &m_dynamic_state;
+			return *this;
+		}
+
+		auto& with_dynamic_states(std::vector<VkDynamicState>&& ds)
+		{
+			m_dynamic_states		  = std::move(ds);
+			m_value.dynamicStateCount = static_cast<uint32_t>(m_dynamic_states.size());
+			m_value.pDynamicStates	  = m_dynamic_states.data();
+			return *this;
+		}
+	};
+
+	//
+
+	class raw_VkPipelineLayoutCreateInfo
+	{
+	protected:
+		VkPipelineLayoutCreateInfo m_value;
+
+		VkDescriptorSetLayout			   m_layout;
+		std::vector<VkDescriptorSetLayout> m_layouts;
+
+		VkPushConstantRange				 m_constant_range;
+		std::vector<VkPushConstantRange> m_constant_ranges;
+
+	public:
+		raw_VkPipelineLayoutCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		}
+
+		virtual ~raw_VkPipelineLayoutCreateInfo() { }
+
+		auto& with_flags(VkPipelineLayoutCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_layout(VkDescriptorSetLayout layout)
+		{
+			m_layout			   = layout;
+			m_value.setLayoutCount = 1;
+			m_value.pSetLayouts	   = &m_layout;
+			return *this;
+		}
+
+		auto& with_layouts(std::vector<VkDescriptorSetLayout>&& layouts)
+		{
+			m_layouts			   = std::move(layouts);
+			m_value.setLayoutCount = static_cast<uint32_t>(m_layouts.size());
+			m_value.pSetLayouts	   = m_layouts.data();
+			return *this;
+		}
+
+		auto& with_constant_range(VkPushConstantRange range)
+		{
+			m_constant_range			   = range;
+			m_value.pushConstantRangeCount = 1;
+			m_value.pPushConstantRanges	   = &m_constant_range;
+			return *this;
+		}
+
+		auto& with_constant_ranges(std::vector<VkPushConstantRange>&& ranges)
+		{
+			m_constant_ranges			   = std::move(ranges);
+			m_value.pushConstantRangeCount = static_cast<uint32_t>(m_constant_ranges.size());
+			m_value.pPushConstantRanges	   = m_constant_ranges.data();
+			return *this;
+		}
+	};
+
+	class raw_VkPipelineLayout
+	{
+	protected:
+		std::shared_ptr<raw_VkDevice> m_device;
+		VkPipelineLayout			  m_pipeline_layout{nullptr};
+
+	public:
+		raw_VkPipelineLayout(std::shared_ptr<raw_VkDevice> device, VkPipelineLayout pipeline_layout) : m_device{device}, m_pipeline_layout{pipeline_layout} { }
+
+		virtual ~raw_VkPipelineLayout()
+		{
+			if (m_pipeline_layout)
+			{
+				m_device->device_table().vkDestroyPipelineLayout(m_device->get_device(), m_pipeline_layout, m_device->allocation_callbacks());
+			}
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_VkDevice> device, std::shared_ptr<raw_VkPipelineLayoutCreateInfo> create_info)
+		{
+			VkPipelineLayout m_pipeline_layout{nullptr};
+			if (auto res = device->device_table().vkCreatePipelineLayout(device->get_device(), create_info.get(), device->allocation_callbacks(), &m_pipeline_layout);
+				res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Failed to create pipeline layout: {}", VkResult_string(res)));
+			}
+			return std::make_unique<T_IMPL>(device);
+		}
+	};
+
+	//
+
+	class raw_VkRenderPassCreateInfo
+	{
+	protected:
+		VkRenderPassCreateInfo m_value;
+
+		VkAttachmentDescription				 m_attachment;
+		std::vector<VkAttachmentDescription> m_attachments;
+
+		VkSubpassDescription			  m_subpass;
+		std::vector<VkSubpassDescription> m_subpasses;
+
+		VkSubpassDependency				 m_dependency;
+		std::vector<VkSubpassDependency> m_dependencies;
+
+	public:
+		raw_VkRenderPassCreateInfo()
+		{
+			m_value.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		}
+
+		virtual ~raw_VkRenderPassCreateInfo() { }
+
+		auto& with_flags(VkRenderPassCreateFlags flags)
+		{
+			m_value.flags = flags;
+			return *this;
+		}
+
+		auto& with_attachment(VkAttachmentDescription att)
+		{
+			m_attachment			= att;
+			m_value.attachmentCount = 1;
+			m_value.pAttachments	= &m_attachment;
+			return *this;
+		}
+
+		auto& with_attachments(std::vector<VkAttachmentDescription>&& att)
+		{
+			m_attachments			= std::move(att);
+			m_value.attachmentCount = static_cast<uint32_t>(m_attachments.size());
+			m_value.pAttachments	= m_attachments.data();
+			return *this;
+		}
+
+		auto& with_subpass(VkSubpassDescription sub)
+		{
+			m_subpass			 = sub;
+			m_value.subpassCount = 1;
+			m_value.pSubpasses	 = &m_subpass;
+			return *this;
+		}
+
+		auto& with_subpasses(std::vector<VkSubpassDescription>&& sub)
+		{
+			m_subpasses			 = std::move(sub);
+			m_value.subpassCount = static_cast<uint32_t>(m_subpasses.size());
+			m_value.pSubpasses	 = m_subpasses.data();
+			return *this;
+		}
+
+		auto& with_dependency(VkSubpassDependency dep)
+		{
+			m_dependency			= dep;
+			m_value.dependencyCount = 1;
+			m_value.pDependencies	= &m_dependency;
+			return *this;
+		}
+
+		auto& with_subpasses(std::vector<VkSubpassDependency>&& dep)
+		{
+			m_dependencies			= std::move(dep);
+			m_value.dependencyCount = static_cast<uint32_t>(m_dependencies.size());
+			m_value.pDependencies	= m_dependencies.data();
+			return *this;
+		}
+	};
+
+	class raw_VkRenderPass
+	{
+	protected:
+		std::shared_ptr<raw_VkDevice>	 m_device;
+		std::shared_ptr<raw_VkSwapchain> m_swapchain;
+		VkRenderPass					 m_render_pass{nullptr};
+
+	public:
+		raw_VkRenderPass(std::shared_ptr<raw_VkDevice> device, VkRenderPass render_pass) : m_device{device}, m_render_pass{render_pass} { }
+
+		virtual ~raw_VkRenderPass()
+		{
+			if (m_render_pass)
+			{
+				m_device->device_table().vkDestroyRenderPass(m_device->get_device(), m_render_pass, m_device->allocation_callbacks());
+			}
+		}
+
+		template<typename T_IMPL>
+		static inline result<std::unique_ptr<T_IMPL>> factory(std::shared_ptr<raw_VkDevice> device, std::shared_ptr<raw_VkRenderPassCreateInfo> create_info)
+		{
+			VkRenderPass render_pass{nullptr};
+			if (auto res = device->device_table().vkCreateRenderPass(device->get_device(), create_info.get(), device->allocation_callbacks(), &render_pass); res != VK_SUCCESS)
+			{
+				return vvv_err_not_specified(fmt::format("Failed to create render pass: {}", VkResult_string(res)));
+			}
+
+			return std::make_unique<T_IMPL>(device, render_pass);
 		}
 	};
 } // namespace vvv
 
 namespace vvv
 {
+	class vk_swapchain
+		: public raw_VkSwapchain
+		, public std::enable_shared_from_this<vk_swapchain>
+	{
+	public:
+		using raw_VkSwapchain::raw_VkSwapchain;
+		virtual ~vk_swapchain() = default;
+
+		result<std::unique_ptr<vk_swapchain>> recreate(VkExtent2D swapchain_size) { }
+	};
+
+	class vk_surface
+		: public raw_VkSurface
+		, public std::enable_shared_from_this<vk_surface>
+	{
+	public:
+		using raw_VkSurface::raw_VkSurface;
+		virtual ~vk_surface() = default;
+	};
+
 	class vk_device
 		: public raw_VkDevice
 		, public std::enable_shared_from_this<vk_device>
@@ -842,6 +1899,20 @@ namespace vvv
 	public:
 		using raw_VkDevice::raw_VkDevice;
 		virtual ~vk_device() = default;
+
+		result<std::unique_ptr<vk_swapchain>> create_swapchain(
+			std::shared_ptr<raw_VkSurface> surface,
+			VkExtent2D					   swapchain_size,
+			uint32_t					   image_count,
+			VkFormat					   surface_format,
+			VkColorSpaceKHR				   color_space,
+			VkSurfaceTransformFlagBitsKHR  transform,
+			VkPresentModeKHR			   present_mode = VK_PRESENT_MODE_MAILBOX_KHR,
+			VkCompositeAlphaFlagBitsKHR	   composite	= VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+		{
+			return raw_VkSwapchain::factory<
+				vk_swapchain>(shared_from_this(), surface, swapchain_size, image_count, surface_format, color_space, transform, present_mode, composite);
+		}
 	};
 
 	class vk_physical_device
@@ -1028,6 +2099,43 @@ namespace vvv
 		{
 			return raw_VkPhysicalDevice::factory<vk_physical_device>(shared_from_this(), dev_info);
 		}
+
+		auto create_surface(HWND hwnd)
+		{
+			return raw_VkSurface::factory<vk_surface>(shared_from_this(), hwnd);
+		}
+	};
+
+	class vk_application_info
+		: public raw_VkApplicationInfo
+		, public std::enable_shared_from_this<vk_application_info>
+	{
+	public:
+		using raw_VkApplicationInfo::raw_VkApplicationInfo;
+		virtual ~vk_application_info() = default;
+
+		static inline auto factory()
+		{
+			return std::make_shared<vk_application_info>();
+		}
+	};
+
+	class vk_instance_create_info
+		: public raw_VkInstanceCreateInfo
+		, public std::enable_shared_from_this<vk_instance_create_info>
+	{
+	public:
+		vk_instance_create_info(std::shared_ptr<raw_VkApplicationInfo> app_info) : raw_VkInstanceCreateInfo()
+		{
+			this->with_application_info(app_info);
+		}
+
+		virtual ~vk_instance_create_info() = default;
+
+		static inline auto factory(std::shared_ptr<raw_VkApplicationInfo> app_info)
+		{
+			return std::make_shared<vk_instance_create_info>(app_info);
+		}
 	};
 
 	class vk
@@ -1038,9 +2146,9 @@ namespace vvv
 		using raw_Vk::raw_Vk;
 		virtual ~vk() = default;
 
-		auto create_instance()
+		auto create_instance(std::shared_ptr<raw_VkInstanceCreateInfo> ci)
 		{
-			return raw_VkInstance::factory<vk_instance>(shared_from_this());
+			return raw_VkInstance::factory<vk_instance>(shared_from_this(), ci);
 		}
 
 		static inline auto factory(int argc, char** argv)
