@@ -11,8 +11,9 @@ class root_window : public wl::render_window_main
 public:
 	std::shared_ptr<vvv::vk_instance>		 m_vk_instance;
 	std::shared_ptr<vvv::vk_physical_device> m_vk_physical_device;
-	std::shared_ptr<vvv::vk_device>			 m_vk_device;
+	std::shared_ptr<vvv::vk_queue_families>	 m_vk_queue_families;
 	std::shared_ptr<vvv::vk_surface>		 m_vk_surface;
+	std::shared_ptr<vvv::vk_device>			 m_vk_device;
 	std::shared_ptr<vvv::vk_swapchain>		 m_vk_swapchain;
 
 	INT64  m_last_time{0};
@@ -549,56 +550,107 @@ public:
 
 	vvv::result<void> vulkan_init(int argc, char** argv)
 	{
-		static std::shared_ptr<vvv::vk> s_vk;
+		static std::shared_ptr<vvv::vk_application> s_vk_application;
 
-		if (!s_vk)
+		if (!m_vk_instance)
 		{
-			vvv_LEAF_ASSIGN(s_vk, vvv::vk::factory(argc, argv));
+			if (!s_vk_application)
+			{
+				vvv_LEAF_ASSIGN(
+					s_vk_application,
+					vvv::create_application(
+						[&](auto& app_info) -> vvv::result<void>
+						{
+							app_info->with_defaults().with_cmdline(argc, argv);
+							return {};
+						}));
+			}
+
+			vvv_LEAF_ASSIGN(
+				m_vk_instance,
+				s_vk_application->create_instance(
+					[&](auto& instance_ci) -> vvv::result<void>
+					{
+						instance_ci->with_default_extensions().with_default_layers();
+						return {};
+					}));
 		}
 
-		auto app_info = vvv::vk_application_info::factory();
-		app_info->with_defaults();
-
-		auto instance_ci = vvv::vk_instance_create_info::factory(app_info);
-		instance_ci->with_default_extensions().with_default_layers();
-
-		vvv_LEAF_ASSIGN(m_vk_instance, s_vk->create_instance(instance_ci));
-
 		return {};
 	}
 
-	vvv::result<void> vulkan_init_device()
+	vvv::result<void> vulkan_frame_init()
 	{
-		vvv_LEAF_AUTO(physical_devices, m_vk_instance->discover_suitable_physical_devices());
-		vvv_LEAF_ASSIGN(m_vk_physical_device, m_vk_instance->create_physical_device(std::move(physical_devices[0])));
-		vvv_LEAF_ASSIGN(m_vk_device, m_vk_physical_device->create_device());
+		if (!m_vk_physical_device)
+		{
+			vvv_LEAF_AUTO(physical_devices, m_vk_instance->discover_suitable_physical_devices());
+
+			vvv_LEAF_ASSIGN(
+				m_vk_physical_device,
+				m_vk_instance->create_physical_device(
+					[&](auto& phys_dev_ci) -> vvv::result<void>
+					{
+						phys_dev_ci->with_device_info(physical_devices[0]);
+						return {};
+					}));
+
+			vvv_LEAF_ASSIGN(m_vk_queue_families, m_vk_physical_device->create_queue_families());
+
+			vvv_LEAF_ASSIGN(m_vk_surface, m_vk_instance->create_surface(hwnd()));
+
+			vvv_LEAF_ASSIGN(
+				m_vk_device,
+				m_vk_physical_device->create_device(
+					[&](auto& device_create_info) -> vvv::result<void>
+					{
+						vvv_LEAF_AUTO(queue_families, m_vk_queue_families->find_exclusive_queue_families(/*m_vk_surface->get_vk_surface()*/));
+
+						device_create_info->with_default_queue_families(queue_families);
+						device_create_info->with_default_extensions();
+						return {};
+					}));
+		}
+
+		if (!m_vk_swapchain)
+		{
+			vvv_LEAF_AUTO(surf_caps, m_vk_surface->get_surface_capabilities(*m_vk_physical_device));
+
+			vvv_LEAF_ASSIGN(
+				m_vk_swapchain,
+				m_vk_device->create_swapchain(
+					[&](auto& create_info) -> vvv::result<void>
+					{
+						create_info
+							->with_settings(
+								std::clamp(uint32_t(2), surf_caps.m_capabilities.minImageCount, surf_caps.m_capabilities.maxImageCount),
+								VK_FORMAT_B8G8R8A8_SRGB,
+								VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+								surf_caps.m_capabilities.currentTransform,
+								VK_PRESENT_MODE_MAILBOX_KHR,
+								VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+							.with_size(
+								{std::clamp(uint32_t(m_rect.right - m_rect.left), surf_caps.m_capabilities.minImageExtent.width, surf_caps.m_capabilities.maxImageExtent.width),
+								 std::clamp(uint32_t(m_rect.bottom - m_rect.top), surf_caps.m_capabilities.minImageExtent.height, surf_caps.m_capabilities.maxImageExtent.height)})
+							.with_surface(m_vk_surface);
+						return {};
+					}));
+		}
 
 		return {};
 	}
 
-	vvv::result<void> vulkan_init_surface()
-	{
-		vvv_LEAF_ASSIGN(m_vk_surface, m_vk_instance->create_surface(hwnd()));
-		return {};
-	}
-
+#if 0
 	vvv::result<void> vulkan_init_swapchain()
 	{
 		vvv_LEAF_AUTO(surf_caps, m_vk_surface->get_surface_capabilities(*m_vk_physical_device));
 
-		vvv_LEAF_ASSIGN(
-			m_vk_swapchain,
-			m_vk_device->create_swapchain(
-				m_vk_surface,
-				{std::clamp(uint32_t(m_rect.right - m_rect.left), surf_caps.m_capabilities.minImageExtent.width, surf_caps.m_capabilities.maxImageExtent.width),
-				 std::clamp(uint32_t(m_rect.bottom - m_rect.top), surf_caps.m_capabilities.minImageExtent.height, surf_caps.m_capabilities.maxImageExtent.height)},
-				std::clamp(uint32_t(2), surf_caps.m_capabilities.minImageCount, surf_caps.m_capabilities.maxImageCount),
-				VK_FORMAT_B8G8R8A8_SRGB,
-				VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-				surf_caps.m_capabilities.currentTransform));
+		auto create_info = vvv::vk_swapchain_create_info::factory(m_vk_surface);
 
+
+		vvv_LEAF_ASSIGN(m_vk_swapchain, m_vk_device->create_swapchain(create_info));
 		return {};
 	}
+#endif
 
 	vvv::result<void> vulkan_destroy()
 	{
@@ -607,7 +659,7 @@ public:
 
 	root_window(int argc, char** argv)
 	{
-		if (auto res = vulkan_init(argc, argv); !res)
+		if (auto res = vulkan_init(argc, argv); !res) [[unlikely]]
 		{
 			vvv::leaf::throw_exception(res.get_error_id());
 		}
@@ -649,6 +701,11 @@ public:
 			{
 				::GetClientRect(hwnd(), &m_rect);
 
+				if (auto res = vulkan_frame_init(); !res) [[unlikely]]
+				{
+					vvv::leaf::throw_exception(res.get_error_id());
+				}
+#if 0
 				if (!m_vk_device)
 				{
 					if (auto res = vulkan_init_device(); !res)
@@ -672,7 +729,7 @@ public:
 						vvv::leaf::throw_exception(res.get_error_id());
 					}
 				}
-
+#endif
 				// if (!m_sample)
 				//{
 				//	m_sample = std::make_unique<T_EXAMPLE>((m_rect.right - m_rect.left), (m_rect.bottom - m_rect.top));
